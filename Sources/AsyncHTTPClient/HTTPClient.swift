@@ -689,6 +689,8 @@ public class HTTPClient {
         /// `url` of `https://example.com/`, the ``HTTPClient`` will actually open a connection to `localhost` instead of `example.com`.
         /// ``HTTPClient`` will still request certificates from the server for `example.com` and validate them as if we would connect to `example.com`.
         public var dnsOverride: [String: String] = [:]
+        
+        public var dnsResolver : Resolver?
 
         /// Enables following 3xx redirects automatically.
         ///
