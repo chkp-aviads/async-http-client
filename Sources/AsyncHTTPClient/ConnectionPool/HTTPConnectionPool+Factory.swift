@@ -319,7 +319,9 @@ extension HTTPConnectionPool.ConnectionFactory {
         eventLoop: EventLoop
     ) -> NIOClientTCPBootstrapProtocol {
         #if canImport(Network)
-        if #available(OSX 10.14, iOS 12.0, tvOS 12.0, watchOS 6.0, *), let tsBootstrap = NIOTSConnectionBootstrap(validatingGroup: eventLoop) {
+        if #available(OSX 10.14, iOS 12.0, tvOS 12.0, watchOS 6.0, *),
+           self.clientConfiguration.dnsResolver == nil,
+            let tsBootstrap = NIOTSConnectionBootstrap(validatingGroup: eventLoop) {
             return tsBootstrap
                 .channelOption(NIOTSChannelOptions.waitForActivity, value: self.clientConfiguration.networkFrameworkWaitForConnectivity)
                 .connectTimeout(deadline - NIODeadline.now())
@@ -337,6 +339,7 @@ extension HTTPConnectionPool.ConnectionFactory {
 
         if let nioBootstrap = ClientBootstrap(validatingGroup: eventLoop) {
             return nioBootstrap
+                .resolver(self.clientConfiguration.dnsResolver)
                 .connectTimeout(deadline - NIODeadline.now())
         }
 
