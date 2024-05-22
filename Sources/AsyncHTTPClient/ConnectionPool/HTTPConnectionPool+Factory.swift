@@ -414,7 +414,13 @@ extension HTTPConnectionPool.ConnectionFactory {
         if #available(OSX 10.14, iOS 12.0, tvOS 12.0, watchOS 6.0, *),
             let tsBootstrap = NIOTSConnectionBootstrap(validatingGroup: eventLoop) {
             // create NIOClientTCPBootstrap with NIOTS TLS provider
-            let bootstrapFuture = tlsConfig.getNWProtocolTLSOptions(on: eventLoop, serverNameIndicatorOverride: key.serverNameIndicatorOverride).map {
+            let serverNameIndicatorOverride: String?
+            if clientConfiguration.dnsResolver != nil, case .domain(let host, _) = key.connectionTarget {
+                serverNameIndicatorOverride = host
+            } else {
+                serverNameIndicatorOverride = key.serverNameIndicatorOverride
+            }
+            let bootstrapFuture = tlsConfig.getNWProtocolTLSOptions(on: eventLoop, serverNameIndicatorOverride: serverNameIndicatorOverride).map {
                 options -> NIOClientTCPBootstrapProtocol in
 
                 tsBootstrap
@@ -533,11 +539,12 @@ extension NIOClientTCPBootstrapProtocol {
     // Connect to target after resolving if needed
     func connect(target: ConnectionTarget, resolver: Resolver?, eventLoop: EventLoop) -> EventLoopFuture<Channel> {
 #if canImport(Network)
-        // Only explicitly resolve that target when using NIOTSConnectionBootstrap as POSIX bootstrap already natively supports resolvers
+        // Only explicitly resolve non-local host target when using NIOTSConnectionBootstrap as POSIX bootstrap already natively supports resolvers
         guard #available(OSX 10.14, iOS 12.0, tvOS 12.0, watchOS 6.0, *),
               let resolver,
               self is NIOTSConnectionBootstrap,
-              case .domain(let host, let port) = target else {
+              case .domain(let host, let port) = target,
+              host != "localhost" else {
             return connect(target: target)
         }
 #else
@@ -551,6 +558,7 @@ extension NIOClientTCPBootstrapProtocol {
                     return connect(target: target)
                 }
                 return connect(to: preferred)
+//                return connect(host: preferred.ipAddress!, port: port)
             }
     }
     
