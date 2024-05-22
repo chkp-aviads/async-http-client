@@ -19,7 +19,7 @@ import NIOConcurrencyHelpers
 import NIOCore
 import NIOHTTP1
 import NIOHTTPCompression
-import NIOPosix
+@preconcurrency import NIOPosix
 import NIOSSL
 import NIOTLS
 import NIOTransportServices

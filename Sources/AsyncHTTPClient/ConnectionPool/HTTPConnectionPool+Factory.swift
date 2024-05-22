@@ -177,7 +177,8 @@ extension HTTPConnectionPool.ConnectionFactory {
         eventLoop: EventLoop
     ) -> EventLoopFuture<Channel> {
         precondition(!self.key.scheme.usesTLS, "Unexpected scheme")
-        return self.makePlainBootstrap(requester: requester, connectionID: connectionID, deadline: deadline, eventLoop: eventLoop).connect(target: self.key.connectionTarget)
+        return self.makePlainBootstrap(requester: requester, connectionID: connectionID, deadline: deadline, eventLoop: eventLoop)
+            .connect(target: self.key.connectionTarget, resolver: clientConfiguration.dnsResolver, eventLoop: eventLoop)
     }
 
     private func makeHTTPProxyChannel<Requester: HTTPConnectionRequester>(
@@ -320,7 +321,6 @@ extension HTTPConnectionPool.ConnectionFactory {
     ) -> NIOClientTCPBootstrapProtocol {
         #if canImport(Network)
         if #available(OSX 10.14, iOS 12.0, tvOS 12.0, watchOS 6.0, *),
-           self.clientConfiguration.dnsResolver == nil,
             let tsBootstrap = NIOTSConnectionBootstrap(validatingGroup: eventLoop) {
             return tsBootstrap
                 .channelOption(NIOTSChannelOptions.waitForActivity, value: self.clientConfiguration.networkFrameworkWaitForConnectivity)
@@ -363,7 +363,7 @@ extension HTTPConnectionPool.ConnectionFactory {
         )
 
         var channelFuture = bootstrapFuture.flatMap { bootstrap -> EventLoopFuture<Channel> in
-            return bootstrap.connect(target: self.key.connectionTarget)
+            return bootstrap.connect(target: self.key.connectionTarget, resolver: clientConfiguration.dnsResolver, eventLoop: eventLoop)
         }.flatMap { channel -> EventLoopFuture<(Channel, String?)> in
             do {
                 // if the channel is closed before flatMap is executed, all ChannelHandler are removed
@@ -411,8 +411,7 @@ extension HTTPConnectionPool.ConnectionFactory {
         }
 
         #if canImport(Network)
-        if #available(OSX 10.14, iOS 12.0, tvOS 12.0, watchOS 6.0, *), 
-            self.clientConfiguration.dnsResolver == nil,
+        if #available(OSX 10.14, iOS 12.0, tvOS 12.0, watchOS 6.0, *),
             let tsBootstrap = NIOTSConnectionBootstrap(validatingGroup: eventLoop) {
             // create NIOClientTCPBootstrap with NIOTS TLS provider
             let bootstrapFuture = tlsConfig.getNWProtocolTLSOptions(on: eventLoop, serverNameIndicatorOverride: key.serverNameIndicatorOverride).map {
@@ -529,5 +528,38 @@ extension NIOClientTCPBootstrapProtocol {
         case .unixSocket(let path):
             return self.connect(unixDomainSocketPath: path)
         }
+    }
+    
+    // Connect to target after resolving if needed
+    func connect(target: ConnectionTarget, resolver: Resolver?, eventLoop: EventLoop) -> EventLoopFuture<Channel> {
+#if canImport(Network)
+        // Only explicitly resolve that target when using NIOTSConnectionBootstrap as POSIX bootstrap already natively supports resolvers
+        guard #available(OSX 10.14, iOS 12.0, tvOS 12.0, watchOS 6.0, *),
+              let resolver,
+              self is NIOTSConnectionBootstrap,
+              case .domain(let host, let port) = target else {
+            return connect(target: target)
+        }
+#else
+        return connect(target: target)
+#endif
+        
+        return firstResolvedAddress(resolver: resolver, host: host, port: port, eventLoop: eventLoop)
+            .flatMap { addresses in
+                let preferred = addresses.first(where: { $0.protocol.rawValue == PF_INET }) ?? addresses.first
+                guard let preferred else {
+                    return connect(target: target)
+                }
+                return connect(to: preferred)
+            }
+    }
+    
+    // Simuletaneously resolve A and AAAA records and return the first resolved address
+    fileprivate func firstResolvedAddress(resolver: Resolver, host: String, port: Int, eventLoop: EventLoop) -> EventLoopFuture<[SocketAddress]> {
+        let aQuery = resolver.initiateAQuery(host: host, port: port)
+        let aaaaQuery = resolver.initiateAAAAQuery(host: host, port: port)
+        let predicate : ([SocketAddress]) -> Bool = { !$0.isEmpty }
+        
+        return EventLoopFuture<[SocketAddress]>.firstSuccess(of: [aQuery, aaaaQuery], on: eventLoop, predicate: predicate)
     }
 }
