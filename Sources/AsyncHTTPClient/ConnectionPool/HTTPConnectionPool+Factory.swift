@@ -178,7 +178,7 @@ extension HTTPConnectionPool.ConnectionFactory {
     ) -> EventLoopFuture<Channel> {
         precondition(!self.key.scheme.usesTLS, "Unexpected scheme")
         return self.makePlainBootstrap(requester: requester, connectionID: connectionID, deadline: deadline, eventLoop: eventLoop)
-            .connect(target: self.key.connectionTarget, resolver: clientConfiguration.dnsResolver, eventLoop: eventLoop)
+            .connect(target: self.key.connectionTarget, resolver: clientConfiguration.dnsResolver?(), eventLoop: eventLoop)
     }
 
     private func makeHTTPProxyChannel<Requester: HTTPConnectionRequester>(
@@ -339,7 +339,7 @@ extension HTTPConnectionPool.ConnectionFactory {
 
         if let nioBootstrap = ClientBootstrap(validatingGroup: eventLoop) {
             return nioBootstrap
-                .resolver(self.clientConfiguration.dnsResolver)
+                .resolver(self.clientConfiguration.dnsResolver?())
                 .connectTimeout(deadline - NIODeadline.now())
         }
 
@@ -363,7 +363,7 @@ extension HTTPConnectionPool.ConnectionFactory {
         )
 
         var channelFuture = bootstrapFuture.flatMap { bootstrap -> EventLoopFuture<Channel> in
-            return bootstrap.connect(target: self.key.connectionTarget, resolver: clientConfiguration.dnsResolver, eventLoop: eventLoop)
+            return bootstrap.connect(target: self.key.connectionTarget, resolver: clientConfiguration.dnsResolver?(), eventLoop: eventLoop)
         }.flatMap { channel -> EventLoopFuture<(Channel, String?)> in
             do {
                 // if the channel is closed before flatMap is executed, all ChannelHandler are removed
@@ -452,7 +452,7 @@ extension HTTPConnectionPool.ConnectionFactory {
         )
         
         let bootstrap = ClientBootstrap(group: eventLoop)
-            .resolver(self.clientConfiguration.dnsResolver)
+            .resolver(self.clientConfiguration.dnsResolver?())
             .connectTimeout(deadline - NIODeadline.now())
             .channelInitializer { channel in
                 sslContextFuture.flatMap { sslContext -> EventLoopFuture<Void> in
