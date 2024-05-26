@@ -177,8 +177,9 @@ extension HTTPConnectionPool.ConnectionFactory {
         eventLoop: EventLoop
     ) -> EventLoopFuture<Channel> {
         precondition(!self.key.scheme.usesTLS, "Unexpected scheme")
-        return self.makePlainBootstrap(requester: requester, connectionID: connectionID, deadline: deadline, eventLoop: eventLoop)
-            .connect(target: self.key.connectionTarget, resolver: clientConfiguration.dnsResolver?(), eventLoop: eventLoop)
+        return self.makePlainBootstrap(requester: requester, connectionID: connectionID, deadline: deadline, eventLoop: eventLoop).flatMap { bootstrap in
+            return bootstrap.connect(target: self.key.connectionTarget, resolver: clientConfiguration.dnsResolver?(), eventLoop: eventLoop)
+        }
     }
 
     private func makeHTTPProxyChannel<Requester: HTTPConnectionRequester>(
@@ -192,34 +193,35 @@ extension HTTPConnectionPool.ConnectionFactory {
         // A proxy connection starts with a plain text connection to the proxy server. After
         // the connection has been established with the proxy server, the connection might be
         // upgraded to TLS before we send our first request.
-        let bootstrap = self.makePlainBootstrap(requester: requester, connectionID: connectionID, deadline: deadline, eventLoop: eventLoop)
-        return bootstrap.connect(host: proxy.host, port: proxy.port).flatMap { channel in
-            let encoder = HTTPRequestEncoder()
-            let decoder = ByteToMessageHandler(HTTPResponseDecoder(leftOverBytesStrategy: .dropBytes))
-            let proxyHandler = HTTP1ProxyConnectHandler(
-                target: self.key.connectionTarget,
-                proxyAuthorization: proxy.authorization,
-                deadline: deadline
-            )
-
-            do {
-                try channel.pipeline.syncOperations.addHandler(encoder)
-                try channel.pipeline.syncOperations.addHandler(decoder)
-                try channel.pipeline.syncOperations.addHandler(proxyHandler)
-            } catch {
-                return channel.eventLoop.makeFailedFuture(error)
-            }
-
-            // The proxyEstablishedFuture is set as soon as the HTTP1ProxyConnectHandler is in a
-            // pipeline. It is created in HTTP1ProxyConnectHandler's handlerAdded method.
-            return proxyHandler.proxyEstablishedFuture!.flatMap {
-                channel.pipeline.removeHandler(proxyHandler).flatMap {
-                    channel.pipeline.removeHandler(decoder).flatMap {
-                        channel.pipeline.removeHandler(encoder)
-                    }
+        return self.makePlainBootstrap(requester: requester, connectionID: connectionID, deadline: deadline, eventLoop: eventLoop).flatMap { bootstrap in
+            return bootstrap.connect(host: proxy.host, port: proxy.port).flatMap { channel in
+                let encoder = HTTPRequestEncoder()
+                let decoder = ByteToMessageHandler(HTTPResponseDecoder(leftOverBytesStrategy: .dropBytes))
+                let proxyHandler = HTTP1ProxyConnectHandler(
+                    target: self.key.connectionTarget,
+                    proxyAuthorization: proxy.authorization,
+                    deadline: deadline
+                )
+                
+                do {
+                    try channel.pipeline.syncOperations.addHandler(encoder)
+                    try channel.pipeline.syncOperations.addHandler(decoder)
+                    try channel.pipeline.syncOperations.addHandler(proxyHandler)
+                } catch {
+                    return channel.eventLoop.makeFailedFuture(error)
                 }
-            }.flatMap {
-                self.setupTLSInProxyConnectionIfNeeded(channel, deadline: deadline, logger: logger)
+                
+                // The proxyEstablishedFuture is set as soon as the HTTP1ProxyConnectHandler is in a
+                // pipeline. It is created in HTTP1ProxyConnectHandler's handlerAdded method.
+                return proxyHandler.proxyEstablishedFuture!.flatMap {
+                    channel.pipeline.removeHandler(proxyHandler).flatMap {
+                        channel.pipeline.removeHandler(decoder).flatMap {
+                            channel.pipeline.removeHandler(encoder)
+                        }
+                    }
+                }.flatMap {
+                    self.setupTLSInProxyConnectionIfNeeded(channel, deadline: deadline, logger: logger)
+                }
             }
         }
     }
@@ -235,26 +237,27 @@ extension HTTPConnectionPool.ConnectionFactory {
         // A proxy connection starts with a plain text connection to the proxy server. After
         // the connection has been established with the proxy server, the connection might be
         // upgraded to TLS before we send our first request.
-        let bootstrap = self.makePlainBootstrap(requester: requester, connectionID: connectionID, deadline: deadline, eventLoop: eventLoop)
-        return bootstrap.connect(host: proxy.host, port: proxy.port).flatMap { channel in
-            let socksConnectHandler = SOCKSClientHandler(targetAddress: SOCKSAddress(self.key.connectionTarget))
-            let socksEventHandler = SOCKSEventsHandler(deadline: deadline)
-
-            do {
-                try channel.pipeline.syncOperations.addHandler(socksConnectHandler)
-                try channel.pipeline.syncOperations.addHandler(socksEventHandler)
-            } catch {
-                return channel.eventLoop.makeFailedFuture(error)
-            }
-
-            // The socksEstablishedFuture is set as soon as the SOCKSEventsHandler is in a
-            // pipeline. It is created in SOCKSEventsHandler's handlerAdded method.
-            return socksEventHandler.socksEstablishedFuture!.flatMap {
-                channel.pipeline.removeHandler(socksEventHandler).flatMap {
-                    channel.pipeline.removeHandler(socksConnectHandler)
+        return self.makePlainBootstrap(requester: requester, connectionID: connectionID, deadline: deadline, eventLoop: eventLoop).flatMap { bootstrap in
+            return bootstrap.connect(host: proxy.host, port: proxy.port).flatMap { channel in
+                let socksConnectHandler = SOCKSClientHandler(targetAddress: SOCKSAddress(self.key.connectionTarget))
+                let socksEventHandler = SOCKSEventsHandler(deadline: deadline)
+                
+                do {
+                    try channel.pipeline.syncOperations.addHandler(socksConnectHandler)
+                    try channel.pipeline.syncOperations.addHandler(socksEventHandler)
+                } catch {
+                    return channel.eventLoop.makeFailedFuture(error)
                 }
-            }.flatMap {
-                self.setupTLSInProxyConnectionIfNeeded(channel, deadline: deadline, logger: logger)
+                
+                // The socksEstablishedFuture is set as soon as the SOCKSEventsHandler is in a
+                // pipeline. It is created in SOCKSEventsHandler's handlerAdded method.
+                return socksEventHandler.socksEstablishedFuture!.flatMap {
+                    channel.pipeline.removeHandler(socksEventHandler).flatMap {
+                        channel.pipeline.removeHandler(socksConnectHandler)
+                    }
+                }.flatMap {
+                    self.setupTLSInProxyConnectionIfNeeded(channel, deadline: deadline, logger: logger)
+                }
             }
         }
     }
@@ -318,11 +321,11 @@ extension HTTPConnectionPool.ConnectionFactory {
         connectionID: HTTPConnectionPool.Connection.ID,
         deadline: NIODeadline,
         eventLoop: EventLoop
-    ) -> NIOClientTCPBootstrapProtocol {
+    ) -> EventLoopFuture<NIOClientTCPBootstrapProtocol> {
         #if canImport(Network)
         if #available(OSX 10.14, iOS 12.0, tvOS 12.0, watchOS 6.0, *),
             let tsBootstrap = NIOTSConnectionBootstrap(validatingGroup: eventLoop) {
-            return tsBootstrap
+            let bootstrap = tsBootstrap
                 .channelOption(NIOTSChannelOptions.waitForActivity, value: self.clientConfiguration.networkFrameworkWaitForConnectivity)
                 .connectTimeout(deadline - NIODeadline.now())
                 .channelInitializer { channel in
@@ -334,13 +337,20 @@ extension HTTPConnectionPool.ConnectionFactory {
                         return channel.eventLoop.makeFailedFuture(error)
                     }
                 }
+            return eventLoop.makeSucceededFuture(bootstrap)
         }
         #endif
 
         if let nioBootstrap = ClientBootstrap(validatingGroup: eventLoop) {
-            return nioBootstrap
-                .resolver(self.clientConfiguration.dnsResolver?())
+            let bootstrap = nioBootstrap
                 .connectTimeout(deadline - NIODeadline.now())
+            if let resolverFuture = self.clientConfiguration.dnsResolver?() {
+                return resolverFuture.hop(to: eventLoop).map { resolver in
+                    return bootstrap.resolver(resolver)
+                }
+            } else {
+                return eventLoop.makeSucceededFuture(bootstrap)
+            }
         }
 
         preconditionFailure("No matching bootstrap found")
@@ -452,7 +462,6 @@ extension HTTPConnectionPool.ConnectionFactory {
         )
         
         let bootstrap = ClientBootstrap(group: eventLoop)
-            .resolver(self.clientConfiguration.dnsResolver?())
             .connectTimeout(deadline - NIODeadline.now())
             .channelInitializer { channel in
                 sslContextFuture.flatMap { sslContext -> EventLoopFuture<Void> in
@@ -472,8 +481,14 @@ extension HTTPConnectionPool.ConnectionFactory {
                     }
                 }
             }
-
-        return eventLoop.makeSucceededFuture(bootstrap)
+        
+        if let resolverFuture = self.clientConfiguration.dnsResolver?() {
+            return resolverFuture.hop(to: eventLoop).map { resolver in
+                return bootstrap.resolver(resolver)
+            }
+        } else {
+            return eventLoop.makeSucceededFuture(bootstrap)
+        }
     }
 
     private func matchALPNToHTTPVersion(_ negotiated: String?, channel: Channel) throws -> NegotiatedProtocol {
@@ -537,7 +552,7 @@ extension NIOClientTCPBootstrapProtocol {
     }
     
     // Connect to target after resolving if needed
-    func connect(target: ConnectionTarget, resolver: Resolver?, eventLoop: EventLoop) -> EventLoopFuture<Channel> {
+    func connect(target: ConnectionTarget, resolver: EventLoopFuture<Resolver>?, eventLoop: EventLoop) -> EventLoopFuture<Channel> {
 #if canImport(Network)
         // Only explicitly resolve non-local host target when using NIOTSConnectionBootstrap as POSIX bootstrap already natively supports resolvers
         guard #available(OSX 10.14, iOS 12.0, tvOS 12.0, watchOS 6.0, *),
@@ -550,16 +565,17 @@ extension NIOClientTCPBootstrapProtocol {
 #else
         return connect(target: target)
 #endif
-        
-        return firstResolvedAddress(resolver: resolver, host: host, port: port, eventLoop: eventLoop)
-            .flatMap { addresses in
-                let preferred = addresses.first(where: { $0.protocol.rawValue == PF_INET }) ?? addresses.first
-                guard let preferred else {
-                    return connect(target: target)
+        return resolver.hop(to: eventLoop).flatMap { resolver in
+            return firstResolvedAddress(resolver: resolver, host: host, port: port, eventLoop: eventLoop)
+                .flatMap { addresses in
+                    let preferred = addresses.first(where: { $0.protocol.rawValue == PF_INET }) ?? addresses.first
+                    guard let preferred else {
+                        return connect(target: target)
+                    }
+                    return connect(to: preferred)
+//                    return connect(host: preferred.ipAddress!, port: port)
                 }
-                return connect(to: preferred)
-//                return connect(host: preferred.ipAddress!, port: port)
-            }
+        }
     }
     
     // Simuletaneously resolve A and AAAA records and return the first resolved address

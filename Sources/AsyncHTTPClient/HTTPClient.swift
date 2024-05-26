@@ -690,7 +690,7 @@ public class HTTPClient {
         /// ``HTTPClient`` will still request certificates from the server for `example.com` and validate them as if we would connect to `example.com`.
         public var dnsOverride: [String: String] = [:]
         
-        public var dnsResolver : (@Sendable () -> any Resolver)?
+        public var dnsResolver : (@Sendable () -> EventLoopFuture<Resolver>)?
 
         /// Enables following 3xx redirects automatically.
         ///
