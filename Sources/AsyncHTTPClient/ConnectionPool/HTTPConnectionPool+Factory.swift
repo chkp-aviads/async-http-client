@@ -552,20 +552,27 @@ extension NIOClientTCPBootstrapProtocol {
     }
     
     // Connect to target after resolving if needed
-    func connect(target: ConnectionTarget, resolver: EventLoopFuture<Resolver>?, eventLoop: EventLoop) -> EventLoopFuture<Channel> {
-#if canImport(Network)
-        // Only explicitly resolve non-local host target when using NIOTSConnectionBootstrap as POSIX bootstrap already natively supports resolvers
-        guard #available(OSX 10.14, iOS 12.0, tvOS 12.0, watchOS 6.0, *),
-              let resolver,
-              self is NIOTSConnectionBootstrap,
-              case .domain(let host, let port) = target,
-              host != "localhost" else {
+    func connect(target: ConnectionTarget, resolver: EventLoopFuture<Resolver?>?, eventLoop: EventLoop) -> EventLoopFuture<Channel> {
+        guard let resolver else {
             return connect(target: target)
         }
-#else
-        return connect(target: target)
-#endif
+        
         return resolver.hop(to: eventLoop).flatMap { resolver in
+            guard let resolver else {
+                return connect(target: target)
+            }
+            
+#if canImport(Network)
+            // Only explicitly resolve non-local host target when using NIOTSConnectionBootstrap as POSIX bootstrap already natively supports resolvers
+            guard #available(OSX 10.14, iOS 12.0, tvOS 12.0, watchOS 6.0, *),
+                  self is NIOTSConnectionBootstrap,
+                  case .domain(let host, let port) = target,
+                  host != "localhost" else {
+                return connect(target: target)
+            }
+#else
+            return connect(target: target)
+#endif
             return firstResolvedAddress(resolver: resolver, host: host, port: port, eventLoop: eventLoop)
                 .flatMap { addresses in
                     let preferred = addresses.first(where: { $0.protocol.rawValue == PF_INET }) ?? addresses.first
