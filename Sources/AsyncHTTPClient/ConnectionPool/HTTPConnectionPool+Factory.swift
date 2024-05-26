@@ -557,40 +557,23 @@ extension NIOClientTCPBootstrapProtocol {
             return connect(target: target)
         }
         
+#if canImport(Network)
+        // Only explicitly resolve non-local host target when using NIOTSConnectionBootstrap as POSIX bootstrap already natively supports resolvers
+        guard #available(OSX 10.14, iOS 12.0, tvOS 12.0, watchOS 6.0, *),
+              let tsBootstrap = self as? NIOTSConnectionBootstrap,
+              case .domain(let host, let port) = target,
+              host != "localhost" else {
+            return connect(target: target)
+        }
+        
         return resolver.hop(to: eventLoop).flatMap { resolver in
             guard let resolver else {
                 return connect(target: target)
             }
-            
-#if canImport(Network)
-            // Only explicitly resolve non-local host target when using NIOTSConnectionBootstrap as POSIX bootstrap already natively supports resolvers
-            guard #available(OSX 10.14, iOS 12.0, tvOS 12.0, watchOS 6.0, *),
-                  self is NIOTSConnectionBootstrap,
-                  case .domain(let host, let port) = target,
-                  host != "localhost" else {
-                return connect(target: target)
-            }
-#else
-            return connect(target: target)
-#endif
-            return firstResolvedAddress(resolver: resolver, host: host, port: port, eventLoop: eventLoop)
-                .flatMap { addresses in
-                    let preferred = addresses.first(where: { $0.protocol.rawValue == PF_INET }) ?? addresses.first
-                    guard let preferred else {
-                        return connect(target: target)
-                    }
-                    return connect(to: preferred)
-//                    return connect(host: preferred.ipAddress!, port: port)
-                }
+            return tsBootstrap.connect(resolver: resolver, host: host, port: port)
         }
-    }
-    
-    // Simuletaneously resolve A and AAAA records and return the first resolved address
-    fileprivate func firstResolvedAddress(resolver: Resolver, host: String, port: Int, eventLoop: EventLoop) -> EventLoopFuture<[SocketAddress]> {
-        let aQuery = resolver.initiateAQuery(host: host, port: port)
-        let aaaaQuery = resolver.initiateAAAAQuery(host: host, port: port)
-        let predicate : ([SocketAddress]) -> Bool = { !$0.isEmpty }
-        
-        return EventLoopFuture<[SocketAddress]>.firstSuccess(of: [aQuery, aaaaQuery], on: eventLoop, predicate: predicate)
+#else
+        return connect(target: target)
+#endif
     }
 }
