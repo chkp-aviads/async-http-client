@@ -52,7 +52,7 @@ class HTTPClientInternalTests: XCTestCase {
             XCTAssertNoThrow(try httpBin.shutdown())
         }
 
-        let body: HTTPClient.Body = .stream(length: 50) { writer in
+        let body: HTTPClient.Body = .stream(contentLength: 50) { writer in
             do {
                 var request = try Request(url: "http://localhost:\(httpBin.port)/events/10/1")
                 request.headers.add(name: "Accept", value: "text/event-stream")
@@ -81,13 +81,13 @@ class HTTPClientInternalTests: XCTestCase {
             XCTAssertNoThrow(try httpBin.shutdown())
         }
 
-        var body: HTTPClient.Body = .stream(length: 50) { _ in
+        var body: HTTPClient.Body = .stream(contentLength: 50) { _ in
             httpClient.eventLoopGroup.next().makeFailedFuture(HTTPClientError.invalidProxyResponse)
         }
 
         XCTAssertThrowsError(try httpClient.post(url: "http://localhost:\(httpBin.port)/post", body: body).wait())
 
-        body = .stream(length: 50) { _ in
+        body = .stream(contentLength: 50) { _ in
             do {
                 var request = try Request(url: "http://localhost:\(httpBin.port)/events/10/1")
                 request.headers.add(name: "Accept", value: "text/event-stream")
@@ -140,6 +140,25 @@ class HTTPClientInternalTests: XCTestCase {
 
         let request12 = try Request(url: "https://someserver.com/some%2Fpathsegment1/pathsegment2")
         XCTAssertEqual(request12.url.uri, "/some%2Fpathsegment1/pathsegment2")
+    }
+
+    func testURIOfRelativeURLRequest() throws {
+        let requestNoLeadingSlash = try Request(
+            url: URL(
+                string: "percent%2Fencoded/hello",
+                relativeTo: URL(string: "http://127.0.0.1")!
+            )!
+        )
+
+        let requestWithLeadingSlash = try Request(
+            url: URL(
+                string: "/percent%2Fencoded/hello",
+                relativeTo: URL(string: "http://127.0.0.1")!
+            )!
+        )
+
+        XCTAssertEqual(requestNoLeadingSlash.url.uri, "/percent%2Fencoded/hello")
+        XCTAssertEqual(requestWithLeadingSlash.url.uri, "/percent%2Fencoded/hello")
     }
 
     func testChannelAndDelegateOnDifferentEventLoops() throws {
@@ -223,7 +242,7 @@ class HTTPClientInternalTests: XCTestCase {
             XCTAssertNoThrow(try httpClient.syncShutdown(requiresCleanClose: true))
         }
 
-        let body: HTTPClient.Body = .stream(length: 8) { writer in
+        let body: HTTPClient.Body = .stream(contentLength: 8) { writer in
             let buffer = ByteBuffer(string: "1234")
             return writer.write(.byteBuffer(buffer)).flatMap {
                 let buffer = ByteBuffer(string: "4321")
@@ -366,7 +385,7 @@ class HTTPClientInternalTests: XCTestCase {
         let el2 = group.next()
         XCTAssert(el1 !== el2)
 
-        let body: HTTPClient.Body = .stream(length: 8) { writer in
+        let body: HTTPClient.Body = .stream(contentLength: 8) { writer in
             XCTAssert(el1.inEventLoop)
             let buffer = ByteBuffer(string: "1234")
             return writer.write(.byteBuffer(buffer)).flatMap {
