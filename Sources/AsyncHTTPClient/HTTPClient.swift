@@ -24,6 +24,10 @@ import NIOSSL
 import NIOTLS
 import NIOTransportServices
 
+#if canImport(Network)
+import Network
+#endif
+
 extension Logger {
     private func requestInfo(_ request: HTTPClient.Request) -> Logger.Metadata.Value {
         return "\(request.method) \(request.url)"
@@ -690,8 +694,13 @@ public class HTTPClient {
         /// ``HTTPClient`` will still request certificates from the server for `example.com` and validate them as if we would connect to `example.com`.
         public var dnsOverride: [String: String] = [:]
         
+        // Optional resolver used to customize how we reolve host names to IPs
         public var dnsResolver : (@Sendable () -> EventLoopFuture<Resolver?>)?
-
+        
+#if canImport(Network)
+        // Optional resolver used to customize how we reolve host names to IPs
+        public var connectionBuilderCallback : (@Sendable (NWEndpoint) -> NWConnection)?
+#endif
         /// Enables following 3xx redirects automatically.
         ///
         /// Following redirects are supported:

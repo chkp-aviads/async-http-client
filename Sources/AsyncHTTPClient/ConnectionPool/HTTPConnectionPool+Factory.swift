@@ -178,7 +178,7 @@ extension HTTPConnectionPool.ConnectionFactory {
     ) -> EventLoopFuture<Channel> {
         precondition(!self.key.scheme.usesTLS, "Unexpected scheme")
         return self.makePlainBootstrap(requester: requester, connectionID: connectionID, deadline: deadline, eventLoop: eventLoop).flatMap { bootstrap in
-            return bootstrap.connect(target: self.key.connectionTarget, resolver: clientConfiguration.dnsResolver?(), eventLoop: eventLoop)
+            return bootstrap.connect(target: self.key.connectionTarget, configuration: clientConfiguration, eventLoop: eventLoop)
         }
     }
 
@@ -324,7 +324,10 @@ extension HTTPConnectionPool.ConnectionFactory {
     ) -> EventLoopFuture<NIOClientTCPBootstrapProtocol> {
         #if canImport(Network)
         if #available(OSX 10.14, iOS 12.0, tvOS 12.0, watchOS 6.0, *),
-            let tsBootstrap = NIOTSConnectionBootstrap(validatingGroup: eventLoop) {
+            var tsBootstrap = NIOTSConnectionBootstrap(validatingGroup: eventLoop) {
+            if let connectionBuilderCallback = clientConfiguration.connectionBuilderCallback {
+                tsBootstrap = tsBootstrap.connectionBuilderCallback(connectionBuilderCallback)
+            }
             let bootstrap = tsBootstrap
                 .channelOption(NIOTSChannelOptions.waitForActivity, value: self.clientConfiguration.networkFrameworkWaitForConnectivity)
                 .connectTimeout(deadline - NIODeadline.now())
@@ -373,7 +376,7 @@ extension HTTPConnectionPool.ConnectionFactory {
         )
 
         var channelFuture = bootstrapFuture.flatMap { bootstrap -> EventLoopFuture<Channel> in
-            return bootstrap.connect(target: self.key.connectionTarget, resolver: clientConfiguration.dnsResolver?(), eventLoop: eventLoop)
+            return bootstrap.connect(target: self.key.connectionTarget, configuration: clientConfiguration, eventLoop: eventLoop)
         }.flatMap { channel -> EventLoopFuture<(Channel, String?)> in
             do {
                 // if the channel is closed before flatMap is executed, all ChannelHandler are removed
@@ -422,7 +425,10 @@ extension HTTPConnectionPool.ConnectionFactory {
 
         #if canImport(Network)
         if #available(OSX 10.14, iOS 12.0, tvOS 12.0, watchOS 6.0, *),
-            let tsBootstrap = NIOTSConnectionBootstrap(validatingGroup: eventLoop) {
+            var tsBootstrap = NIOTSConnectionBootstrap(validatingGroup: eventLoop) {
+            if let connectionBuilderCallback = clientConfiguration.connectionBuilderCallback {
+                tsBootstrap = tsBootstrap.connectionBuilderCallback(connectionBuilderCallback)
+            }
             // create NIOClientTCPBootstrap with NIOTS TLS provider
             let serverNameIndicatorOverride: String?
             if clientConfiguration.dnsResolver != nil, case .domain(let host, _) = key.connectionTarget {
@@ -552,8 +558,8 @@ extension NIOClientTCPBootstrapProtocol {
     }
     
     // Connect to target after resolving if needed
-    func connect(target: ConnectionTarget, resolver: EventLoopFuture<Resolver?>?, eventLoop: EventLoop) -> EventLoopFuture<Channel> {
-        guard let resolver else {
+    func connect(target: ConnectionTarget, configuration: HTTPClient.Configuration, eventLoop: EventLoop) -> EventLoopFuture<Channel> {
+        guard let resolver = configuration.dnsResolver?() else {
             return connect(target: target)
         }
         
