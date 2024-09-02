@@ -17,9 +17,6 @@ import PackageDescription
 
 let package = Package(
     name: "async-http-client",
-    platforms: [
-        .iOS(.v12), .macOS(.v10_14), .tvOS(.v12), .watchOS(.v5)
-    ],
     products: [
         .library(name: "AsyncHTTPClient", targets: ["AsyncHTTPClient"]),
     ],
