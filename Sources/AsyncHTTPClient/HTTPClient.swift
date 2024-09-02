@@ -24,6 +24,10 @@ import NIOSSL
 import NIOTLS
 import NIOTransportServices
 
+#if canImport(Network)
+import Network
+#endif
+
 extension Logger {
     private func requestInfo(_ request: HTTPClient.Request) -> Logger.Metadata.Value {
         return "\(request.method) \(request.url)"
@@ -691,6 +695,10 @@ public class HTTPClient {
         public var dnsOverride: [String: String] = [:]
         
         public var dnsResolver : (@Sendable () -> EventLoopFuture<Resolver?>)?
+        
+#if canImport(Network)
+        public var requiredInterface: NWInterface?
+#endif
 
         /// Enables following 3xx redirects automatically.
         ///
