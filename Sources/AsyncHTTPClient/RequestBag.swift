@@ -108,6 +108,12 @@ final class RequestBag<Delegate: HTTPClientResponseDelegate> {
             break
         }
     }
+    
+    private func requestResolvedToEndpoint0(_ address: SocketAddress) {
+        self.task.eventLoop.assertInEventLoop()
+
+        self.delegate.didResolveEndpoint(task: self.task, address)
+    }
 
     private func requestHeadSent0() {
         self.task.eventLoop.assertInEventLoop()
@@ -447,6 +453,16 @@ extension RequestBag: HTTPExecutableRequest {
         } else {
             self.task.eventLoop.execute {
                 self.willExecuteRequest0(executor)
+            }
+        }
+    }
+    
+    func requestResolvedToEndpoint(_ address: SocketAddress) {
+        if self.task.eventLoop.inEventLoop {
+            self.requestResolvedToEndpoint0(address)
+        } else {
+            self.task.eventLoop.execute {
+                self.requestResolvedToEndpoint0(address)
             }
         }
     }

@@ -228,6 +228,8 @@ protocol HTTPExecutableRequest: AnyObject {
     /// request is cancelled after the `willExecuteRequest` method was called. The executing
     /// request must call `executor.cancel()` to stop request execution.
     func willExecuteRequest(_: HTTPRequestExecutor)
+    
+    func requestResolvedToEndpoint(_ address: SocketAddress)
 
     /// Will be called by the ChannelHandler to indicate that the request head has been sent.
     ///

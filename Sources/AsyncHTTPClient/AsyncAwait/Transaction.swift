@@ -179,6 +179,8 @@ extension Transaction: HTTPExecutableRequest {
             break
         }
     }
+    
+    func requestResolvedToEndpoint(_ address: SocketAddress) {}
 
     func requestHeadSent() {}
 

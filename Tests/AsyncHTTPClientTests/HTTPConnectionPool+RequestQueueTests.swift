@@ -112,6 +112,10 @@ private class MockScheduledRequest: HTTPSchedulableRequest {
     func willExecuteRequest(_: HTTPRequestExecutor) {
         preconditionFailure("Unimplemented")
     }
+    
+    func requestResolvedToEndpoint(_ address: SocketAddress) {
+        preconditionFailure("Unimplemented")
+    }
 
     func requestHeadSent() {
         preconditionFailure("Unimplemented")

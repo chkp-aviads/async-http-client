@@ -166,6 +166,9 @@ final class HTTP2ClientRequestHandler: ChannelDuplexHandler {
     private func run(_ action: HTTPRequestStateMachine.Action, context: ChannelHandlerContext) {
         switch action {
         case .sendRequestHead(let head, let sendEnd):
+            if let endpoint = context.remoteAddress {
+                self.request!.requestResolvedToEndpoint(endpoint)
+            }
             self.sendRequestHead(head, sendEnd: sendEnd, context: context)
         case .notifyRequestHeadSendSuccessfully(let resumeRequestBodyStream, let startIdleTimer):
             // We can force unwrap the request here, as we have just validated in the state machine,

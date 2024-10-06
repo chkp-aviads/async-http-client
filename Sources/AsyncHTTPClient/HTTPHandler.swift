@@ -550,6 +550,13 @@ public final class ResponseAccumulator: HTTPClientResponseDelegate {
 ///          object that implements this protocol, but may do so if needed.
 public protocol HTTPClientResponseDelegate: AnyObject {
     associatedtype Response
+    
+    /// Called when the request is resolved to IP address
+    ///
+    /// - parameters:
+    ///     - task: Current request context.
+    ///     - endpoint: The resolved address
+    func didResolveEndpoint(task: HTTPClient.Task<Response>, _ endpoint: SocketAddress)
 
     /// Called when the request head is sent. Will be called once.
     ///
@@ -622,6 +629,11 @@ public protocol HTTPClientResponseDelegate: AnyObject {
 }
 
 extension HTTPClientResponseDelegate {
+    /// Default implementation of ``HTTPClientResponseDelegate/didResolveEndpoint(task:_:)``.
+    ///
+    /// By default, this does nothing.
+    public func didResolveEndpoint(task: HTTPClient.Task<Response>, _ endpoint: SocketAddress) {}
+    
     /// Default implementation of ``HTTPClientResponseDelegate/didSendRequest(task:)-9od5p``.
     ///
     /// By default, this does nothing.

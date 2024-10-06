@@ -104,6 +104,8 @@ final class MockHTTPExecutableRequest: HTTPExecutableRequest {
         }
         willExecuteRequestCallback(executor)
     }
+    
+    func requestResolvedToEndpoint(_ address: SocketAddress) { }
 
     func requestHeadSent() {
         self.events.append(.requestHeadSent)
