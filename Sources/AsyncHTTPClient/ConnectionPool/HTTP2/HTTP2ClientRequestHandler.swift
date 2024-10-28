@@ -166,7 +166,7 @@ final class HTTP2ClientRequestHandler: ChannelDuplexHandler {
     private func run(_ action: HTTPRequestStateMachine.Action, context: ChannelHandlerContext) {
         switch action {
         case .sendRequestHead(let head, let sendEnd):
-            if let endpoint = context.remoteAddress {
+            if let endpoint = context.channel.remoteAddress {
                 self.request!.requestResolvedToEndpoint(endpoint)
             }
             self.sendRequestHead(head, sendEnd: sendEnd, context: context)
