@@ -558,7 +558,7 @@ extension NIOClientTCPBootstrapProtocol {
     }
     
     // Connect to target after resolving if needed
-    func connect(target: ConnectionTarget, resolver: EventLoopFuture<Resolver?>?, eventLoop: EventLoop) -> EventLoopFuture<Channel> {
+    func connect(target: ConnectionTarget, resolver: EventLoopFuture<(Resolver & Sendable)?>?, eventLoop: EventLoop) -> EventLoopFuture<Channel> {
         guard let resolver else {
             return connect(target: target)
         }
