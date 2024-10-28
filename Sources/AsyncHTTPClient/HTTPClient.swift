@@ -694,7 +694,7 @@ public class HTTPClient {
         /// ``HTTPClient`` will still request certificates from the server for `example.com` and validate them as if we would connect to `example.com`.
         public var dnsOverride: [String: String] = [:]
         
-        public var dnsResolver : (@Sendable () -> EventLoopFuture<Resolver?>)?
+        public var dnsResolver : (@Sendable () -> EventLoopFuture<(Resolver & Sendable)?>)?
         
 #if canImport(Network)
         public var requiredInterface: NWInterface?
