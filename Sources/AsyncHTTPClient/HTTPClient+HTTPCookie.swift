@@ -13,6 +13,12 @@
 //===----------------------------------------------------------------------===//
 
 import NIOHTTP1
+#if canImport(xlocale)
+import xlocale
+#elseif canImport(locale_h)
+import locale_h
+#endif
+
 #if canImport(Darwin)
 import Darwin
 #elseif canImport(Musl)
@@ -20,6 +26,7 @@ import Musl
 #elseif canImport(Glibc)
 import Glibc
 #endif
+
 import CAsyncHTTPClient
 import NIOCore
 

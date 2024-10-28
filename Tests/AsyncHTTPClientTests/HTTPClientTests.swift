@@ -43,8 +43,12 @@ final class HTTPClientTests: XCTestCaseHTTPClientTestsBaseClass {
         XCTAssertEqual(request2.url.path, "")
 
         let request3 = try Request(url: "unix:///tmp/file")
-        XCTAssertNil(request3.url.host)
         XCTAssertEqual(request3.host, "")
+        #if os(Linux) && compiler(>=6.0)
+        XCTAssertEqual(request3.url.host, "")
+        #else
+        XCTAssertNil(request3.url.host)
+        #endif
         XCTAssertEqual(request3.url.path, "/tmp/file")
         XCTAssertEqual(request3.port, 80)
         XCTAssertFalse(request3.useTLS)
@@ -1274,9 +1278,10 @@ final class HTTPClientTests: XCTestCaseHTTPClientTestsBaseClass {
         /// openssl req -x509 -newkey rsa:4096 -keyout self_signed_key.pem -out self_signed_cert.pem -sha256 -days 99999 -nodes -subj '/CN=localhost'
         let certPath = Bundle.module.path(forResource: "self_signed_cert", ofType: "pem")!
         let keyPath = Bundle.module.path(forResource: "self_signed_key", ofType: "pem")!
+        let key = try NIOSSLPrivateKey(file: keyPath, format: .pem)
         let configuration = try TLSConfiguration.makeServerConfiguration(
             certificateChain: NIOSSLCertificate.fromPEMFile(certPath).map { .certificate($0) },
-            privateKey: .file(keyPath)
+            privateKey: .privateKey(key)
         )
         let sslContext = try NIOSSLContext(configuration: configuration)
 
@@ -1314,9 +1319,10 @@ final class HTTPClientTests: XCTestCaseHTTPClientTestsBaseClass {
         /// openssl req -x509 -newkey rsa:4096 -keyout self_signed_key.pem -out self_signed_cert.pem -sha256 -days 99999 -nodes -subj '/CN=localhost'
         let certPath = Bundle.module.path(forResource: "self_signed_cert", ofType: "pem")!
         let keyPath = Bundle.module.path(forResource: "self_signed_key", ofType: "pem")!
+        let key = try NIOSSLPrivateKey(file: keyPath, format: .pem)
         let configuration = try TLSConfiguration.makeServerConfiguration(
             certificateChain: NIOSSLCertificate.fromPEMFile(certPath).map { .certificate($0) },
-            privateKey: .file(keyPath)
+            privateKey: .privateKey(key)
         )
         let sslContext = try NIOSSLContext(configuration: configuration)
 
@@ -3588,6 +3594,24 @@ final class HTTPClientTests: XCTestCaseHTTPClientTestsBaseClass {
         XCTAssertEqual(.ok, response.status)
     }
 
+    func testClientWithMultipath() throws {
+        do {
+            var conf = HTTPClient.Configuration()
+            conf.enableMultipath = true
+            let client = HTTPClient(configuration: conf)
+            defer {
+                XCTAssertNoThrow(try client.shutdown().wait())
+            }
+            let response = try client.get(url: self.defaultHTTPBinURLPrefix + "get").wait()
+            XCTAssertEqual(.ok, response.status)
+        } catch let error as IOError where error.errnoCode == EINVAL || error.errnoCode == EPROTONOSUPPORT || error.errnoCode == ENOPROTOOPT {
+            // some old Linux kernels don't support MPTCP, skip this test in this case
+            // see https://www.mptcp.dev/implementation.html for details about each type
+            // of error
+            throw XCTSkip()
+        }
+    }
+
     func testSingletonClientWorks() throws {
         let response = try HTTPClient.shared.get(url: self.defaultHTTPBinURLPrefix + "get").wait()
         XCTAssertEqual(.ok, response.status)
@@ -3643,5 +3667,12 @@ final class HTTPClientTests: XCTestCaseHTTPClientTestsBaseClass {
 
         let response3 = try await client.execute(request, timeout: /* infinity */ .hours(99))
         XCTAssertEqual(.ok, response3.status)
+    }
+
+    @available(macOS 10.15, iOS 13.0, watchOS 6.0, tvOS 13.0, *)
+    func testRequestBasicAuth() async throws {
+        var request = try HTTPClient.Request(url: self.defaultHTTPBinURLPrefix)
+        request.setBasicAuth(username: "foo", password: "bar")
+        XCTAssertEqual(request.headers.first(name: "Authorization"), "Basic Zm9vOmJhcg==")
     }
 }

@@ -527,9 +527,10 @@ final class AsyncAwaitEndToEndTests: XCTestCase {
             /// openssl req -x509 -newkey rsa:4096 -keyout self_signed_key.pem -out self_signed_cert.pem -sha256 -days 99999 -nodes -subj '/CN=localhost'
             let certPath = Bundle.module.path(forResource: "self_signed_cert", ofType: "pem")!
             let keyPath = Bundle.module.path(forResource: "self_signed_key", ofType: "pem")!
+            let key = try NIOSSLPrivateKey(file: keyPath, format: .pem)
             let configuration = TLSConfiguration.makeServerConfiguration(
                 certificateChain: try NIOSSLCertificate.fromPEMFile(certPath).map { .certificate($0) },
-                privateKey: .file(keyPath)
+                privateKey: .privateKey(key)
             )
             let sslContext = try NIOSSLContext(configuration: configuration)
             let serverGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
@@ -597,10 +598,11 @@ final class AsyncAwaitEndToEndTests: XCTestCase {
             /// ```
             let certPath = Bundle.module.path(forResource: "example.com.cert", ofType: "pem")!
             let keyPath = Bundle.module.path(forResource: "example.com.private-key", ofType: "pem")!
+            let key = try NIOSSLPrivateKey(file: keyPath, format: .pem)
             let localhostCert = try NIOSSLCertificate.fromPEMFile(certPath)
             let configuration = TLSConfiguration.makeServerConfiguration(
                 certificateChain: localhostCert.map { .certificate($0) },
-                privateKey: .file(keyPath)
+                privateKey: .privateKey(key)
             )
             let bin = HTTPBin(.http2(tlsConfiguration: configuration))
             defer { XCTAssertNoThrow(try bin.shutdown()) }
@@ -638,6 +640,24 @@ final class AsyncAwaitEndToEndTests: XCTestCase {
                 XCTAssertEqual($0 as? HTTPClientError, .invalidURL)
             }
         }
+    }
+
+    func testInsanelyHighConcurrentHTTP1ConnectionLimitDoesNotCrash() async throws {
+        let bin = HTTPBin(.http1_1(compress: false))
+        defer { XCTAssertNoThrow(try bin.shutdown()) }
+
+        var httpClientConfig = HTTPClient.Configuration()
+        httpClientConfig.connectionPool = .init(
+            idleTimeout: .hours(1),
+            concurrentHTTP1ConnectionsPerHostSoftLimit: Int.max
+        )
+        httpClientConfig.timeout = .init(connect: .seconds(10), read: .seconds(100), write: .seconds(100))
+
+        let httpClient = HTTPClient(eventLoopGroupProvider: .shared(self.clientGroup), configuration: httpClientConfig)
+        defer { XCTAssertNoThrow(try httpClient.syncShutdown()) }
+
+        let request = HTTPClientRequest(url: "http://localhost:\(bin.port)")
+        _ = try await httpClient.execute(request, deadline: .now() + .seconds(2))
     }
 
     func testRedirectChangesHostHeader() {
@@ -887,7 +907,7 @@ final class AsyncAwaitEndToEndTests: XCTestCase {
             await XCTAssertThrowsError(
                 try await response.body.collect(upTo: 3)
             ) {
-                XCTAssertEqualTypeAndValue($0, NIOTooManyBytesError())
+                XCTAssertEqualTypeAndValue($0, NIOTooManyBytesError(maxBytes: 3))
             }
         }
     }

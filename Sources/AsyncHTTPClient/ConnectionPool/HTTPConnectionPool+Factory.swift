@@ -328,6 +328,7 @@ extension HTTPConnectionPool.ConnectionFactory {
             let bootstrap = tsBootstrap
                 .requiredInterface(clientConfiguration.requiredInterface)
                 .channelOption(NIOTSChannelOptions.waitForActivity, value: self.clientConfiguration.networkFrameworkWaitForConnectivity)
+                .channelOption(NIOTSChannelOptions.multipathServiceType, value: self.clientConfiguration.enableMultipath ? .handover : .disabled)
                 .connectTimeout(deadline - NIODeadline.now())
                 .channelInitializer { channel in
                     do {
@@ -345,6 +346,7 @@ extension HTTPConnectionPool.ConnectionFactory {
         if let nioBootstrap = ClientBootstrap(validatingGroup: eventLoop) {
             let bootstrap = nioBootstrap
                 .connectTimeout(deadline - NIODeadline.now())
+		.enableMPTCP(clientConfiguration.enableMultipath)
             if let resolverFuture = self.clientConfiguration.dnsResolver?() {
                 return resolverFuture.hop(to: eventLoop).map { resolver in
                     return bootstrap.resolver(resolver)
@@ -437,6 +439,7 @@ extension HTTPConnectionPool.ConnectionFactory {
                 tsBootstrap
                     .requiredInterface(clientConfiguration.requiredInterface)
                     .channelOption(NIOTSChannelOptions.waitForActivity, value: self.clientConfiguration.networkFrameworkWaitForConnectivity)
+                    .channelOption(NIOTSChannelOptions.multipathServiceType, value: self.clientConfiguration.enableMultipath ? .handover : .disabled)
                     .connectTimeout(deadline - NIODeadline.now())
                     .tlsOptions(options)
                     .channelInitializer { channel in
@@ -465,6 +468,7 @@ extension HTTPConnectionPool.ConnectionFactory {
         
         let bootstrap = ClientBootstrap(group: eventLoop)
             .connectTimeout(deadline - NIODeadline.now())
+            .enableMPTCP(clientConfiguration.enableMultipath)
             .channelInitializer { channel in
                 sslContextFuture.flatMap { sslContext -> EventLoopFuture<Void> in
                     do {
