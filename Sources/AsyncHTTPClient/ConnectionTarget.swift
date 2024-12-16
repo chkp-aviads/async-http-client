@@ -14,7 +14,7 @@
 
 import enum NIOCore.SocketAddress
 
-enum ConnectionTarget: Equatable, Hashable {
+public enum ConnectionTarget: Equatable, Hashable {
     // We keep the IP address serialization precisely as it is in the URL.
     // Some platforms have quirks in their implementations of 'ntop', for example
     // writing IPv6 addresses as having embedded IPv4 sections (e.g. [::192.168.0.1] vs [::c0a8:1]).
@@ -24,7 +24,7 @@ enum ConnectionTarget: Equatable, Hashable {
     case domain(name: String, port: Int)
     case unixSocket(path: String)
 
-    init(remoteHost: String, port: Int) {
+    public init(remoteHost: String, port: Int) {
         if let addr = try? SocketAddress(ipAddress: remoteHost, port: port) {
             switch addr {
             case .v6:
@@ -41,7 +41,7 @@ enum ConnectionTarget: Equatable, Hashable {
     }
 }
 
-extension ConnectionTarget {
+public extension ConnectionTarget {
     /// The host name which will be send as an HTTP `Host` header.
     /// Only returns nil if the `self` is a `unixSocket`.
     var host: String? {
