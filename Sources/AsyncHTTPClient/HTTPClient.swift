@@ -66,7 +66,7 @@ public class HTTPClient {
     ///
     /// All HTTP transactions will occur on loops owned by this group.
     public let eventLoopGroup: EventLoopGroup
-    let configuration: Configuration
+    public let configuration: Configuration
     let poolManager: HTTPConnectionPool.Manager
 
     /// Shared thread pool used for file IO. It is lazily created on first access of ``Task/fileIOThreadPool``.
@@ -777,6 +777,10 @@ public class HTTPClient {
         }
 
         return task
+    }
+    
+    public func clearSSLCache() {
+        poolManager.clearSSLCache()
     }
 
     /// ``HTTPClient`` configuration.

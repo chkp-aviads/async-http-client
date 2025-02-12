@@ -87,6 +87,11 @@ struct LRUCache<Key: Equatable, Value> {
 
         return self.append(key: key, value: valueGenerator(key))
     }
+    
+    mutating func removeAll() {
+        self.elements.removeAll()
+        self.generation = 0
+    }
 }
 
 extension Array {

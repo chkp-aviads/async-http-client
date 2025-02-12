@@ -48,6 +48,10 @@ extension HTTPConnectionPool {
             self.configuration = configuration
             self.logger = logger
         }
+        
+        func clearSSLCache() {
+            sslContextCache.clearCache()
+        }
 
         func executeRequest(_ request: HTTPSchedulableRequest) {
             let poolKey = request.poolKey
