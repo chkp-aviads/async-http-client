@@ -13,10 +13,13 @@
 //===----------------------------------------------------------------------===//
 
 import NIOCore
+
 #if canImport(Darwin)
 import func Darwin.pow
 #elseif canImport(Musl)
 import func Musl.pow
+#elseif canImport(Android)
+import func Android.pow
 #else
 import func Glibc.pow
 #endif

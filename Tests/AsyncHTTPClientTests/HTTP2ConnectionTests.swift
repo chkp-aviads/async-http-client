@@ -12,17 +12,19 @@
 //
 //===----------------------------------------------------------------------===//
 
-@testable import AsyncHTTPClient
 import Logging
 import NIOConcurrencyHelpers
 import NIOCore
 import NIOEmbedded
+import NIOHPACK
 import NIOHTTP1
 import NIOHTTP2
 import NIOPosix
 import NIOSSL
 import NIOTestUtils
 import XCTest
+
+@testable import AsyncHTTPClient
 
 class HTTP2ConnectionTests: XCTestCase {
     func testCreateNewConnectionFailureClosedIO() {
@@ -34,14 +36,16 @@ class HTTP2ConnectionTests: XCTestCase {
         embedded.embeddedEventLoop.run()
         let logger = Logger(label: "test.http2.connection")
 
-        XCTAssertThrowsError(try HTTP2Connection.start(
-            channel: embedded,
-            connectionID: 0,
-            delegate: TestHTTP2ConnectionDelegate(),
-            decompression: .disabled,
-            maximumConnectionUses: nil,
-            logger: logger
-        ).wait())
+        XCTAssertThrowsError(
+            try HTTP2Connection.start(
+                channel: embedded,
+                connectionID: 0,
+                delegate: TestHTTP2ConnectionDelegate(),
+                decompression: .disabled,
+                maximumConnectionUses: nil,
+                logger: logger
+            ).wait()
+        )
     }
 
     func testConnectionToleratesShutdownEventsAfterAlreadyClosed() {
@@ -80,11 +84,12 @@ class HTTP2ConnectionTests: XCTestCase {
         let connectionCreator = TestConnectionCreator()
         let delegate = TestHTTP2ConnectionDelegate()
         var maybeHTTP2Connection: HTTP2Connection?
-        XCTAssertNoThrow(maybeHTTP2Connection = try connectionCreator.createHTTP2Connection(
-            to: httpBin.port,
-            delegate: delegate,
-            on: eventLoop
-        )
+        XCTAssertNoThrow(
+            maybeHTTP2Connection = try connectionCreator.createHTTP2Connection(
+                to: httpBin.port,
+                delegate: delegate,
+                on: eventLoop
+            )
         )
         guard let http2Connection = maybeHTTP2Connection else {
             return XCTFail("Expected to have an HTTP2 connection here.")
@@ -93,15 +98,17 @@ class HTTP2ConnectionTests: XCTestCase {
         var maybeRequest: HTTPClient.Request?
         var maybeRequestBag: RequestBag<ResponseAccumulator>?
         XCTAssertNoThrow(maybeRequest = try HTTPClient.Request(url: "https://localhost:\(httpBin.port)"))
-        XCTAssertNoThrow(maybeRequestBag = try RequestBag(
-            request: XCTUnwrap(maybeRequest),
-            eventLoopPreference: .indifferent,
-            task: .init(eventLoop: eventLoop, logger: .init(label: "test")),
-            redirectHandler: nil,
-            connectionDeadline: .distantFuture,
-            requestOptions: .forTests(),
-            delegate: ResponseAccumulator(request: XCTUnwrap(maybeRequest))
-        ))
+        XCTAssertNoThrow(
+            maybeRequestBag = try RequestBag(
+                request: XCTUnwrap(maybeRequest),
+                eventLoopPreference: .indifferent,
+                task: .init(eventLoop: eventLoop, logger: .init(label: "test")),
+                redirectHandler: nil,
+                connectionDeadline: .distantFuture,
+                requestOptions: .forTests(),
+                delegate: ResponseAccumulator(request: XCTUnwrap(maybeRequest))
+            )
+        )
         guard let requestBag = maybeRequestBag else {
             return XCTFail("Expected to have a request bag at this point")
         }
@@ -136,11 +143,13 @@ class HTTP2ConnectionTests: XCTestCase {
         let connectionCreator = TestConnectionCreator()
         let delegate = TestHTTP2ConnectionDelegate()
         var maybeHTTP2Connection: HTTP2Connection?
-        XCTAssertNoThrow(maybeHTTP2Connection = try connectionCreator.createHTTP2Connection(
-            to: httpBin.port,
-            delegate: delegate,
-            on: eventLoop
-        ))
+        XCTAssertNoThrow(
+            maybeHTTP2Connection = try connectionCreator.createHTTP2Connection(
+                to: httpBin.port,
+                delegate: delegate,
+                on: eventLoop
+            )
+        )
         guard let http2Connection = maybeHTTP2Connection else {
             return XCTFail("Expected to have an HTTP2 connection here.")
         }
@@ -154,15 +163,17 @@ class HTTP2ConnectionTests: XCTestCase {
             var maybeRequest: HTTPClient.Request?
             var maybeRequestBag: RequestBag<ResponseAccumulator>?
             XCTAssertNoThrow(maybeRequest = try HTTPClient.Request(url: "https://localhost:\(httpBin.port)"))
-            XCTAssertNoThrow(maybeRequestBag = try RequestBag(
-                request: XCTUnwrap(maybeRequest),
-                eventLoopPreference: .indifferent,
-                task: .init(eventLoop: eventLoop, logger: .init(label: "test")),
-                redirectHandler: nil,
-                connectionDeadline: .distantFuture,
-                requestOptions: .forTests(),
-                delegate: ResponseAccumulator(request: XCTUnwrap(maybeRequest))
-            ))
+            XCTAssertNoThrow(
+                maybeRequestBag = try RequestBag(
+                    request: XCTUnwrap(maybeRequest),
+                    eventLoopPreference: .indifferent,
+                    task: .init(eventLoop: eventLoop, logger: .init(label: "test")),
+                    redirectHandler: nil,
+                    connectionDeadline: .distantFuture,
+                    requestOptions: .forTests(),
+                    delegate: ResponseAccumulator(request: XCTUnwrap(maybeRequest))
+                )
+            )
             guard let requestBag = maybeRequestBag else {
                 return XCTFail("Expected to have a request bag at this point")
             }
@@ -200,11 +211,12 @@ class HTTP2ConnectionTests: XCTestCase {
         let connectionCreator = TestConnectionCreator()
         let delegate = TestHTTP2ConnectionDelegate()
         var maybeHTTP2Connection: HTTP2Connection?
-        XCTAssertNoThrow(maybeHTTP2Connection = try connectionCreator.createHTTP2Connection(
-            to: httpBin.port,
-            delegate: delegate,
-            on: eventLoop
-        )
+        XCTAssertNoThrow(
+            maybeHTTP2Connection = try connectionCreator.createHTTP2Connection(
+                to: httpBin.port,
+                delegate: delegate,
+                on: eventLoop
+            )
         )
         guard let http2Connection = maybeHTTP2Connection else {
             return XCTFail("Expected to have an HTTP2 connection here.")
@@ -216,15 +228,17 @@ class HTTP2ConnectionTests: XCTestCase {
             var maybeRequest: HTTPClient.Request?
             var maybeRequestBag: RequestBag<ResponseAccumulator>?
             XCTAssertNoThrow(maybeRequest = try HTTPClient.Request(url: "https://localhost:\(httpBin.port)"))
-            XCTAssertNoThrow(maybeRequestBag = try RequestBag(
-                request: XCTUnwrap(maybeRequest),
-                eventLoopPreference: .indifferent,
-                task: .init(eventLoop: eventLoop, logger: .init(label: "test")),
-                redirectHandler: nil,
-                connectionDeadline: .distantFuture,
-                requestOptions: .forTests(),
-                delegate: ResponseAccumulator(request: XCTUnwrap(maybeRequest))
-            ))
+            XCTAssertNoThrow(
+                maybeRequestBag = try RequestBag(
+                    request: XCTUnwrap(maybeRequest),
+                    eventLoopPreference: .indifferent,
+                    task: .init(eventLoop: eventLoop, logger: .init(label: "test")),
+                    redirectHandler: nil,
+                    connectionDeadline: .distantFuture,
+                    requestOptions: .forTests(),
+                    delegate: ResponseAccumulator(request: XCTUnwrap(maybeRequest))
+                )
+            )
             guard let requestBag = maybeRequestBag else {
                 return XCTFail("Expected to have a request bag at this point")
             }
@@ -292,11 +306,13 @@ class HTTP2ConnectionTests: XCTestCase {
         let connectionCreator = TestConnectionCreator()
         let delegate = TestHTTP2ConnectionDelegate()
         var maybeHTTP2Connection: HTTP2Connection?
-        XCTAssertNoThrow(maybeHTTP2Connection = try connectionCreator.createHTTP2Connection(
-            to: httpBin.port,
-            delegate: delegate,
-            on: eventLoop
-        ))
+        XCTAssertNoThrow(
+            maybeHTTP2Connection = try connectionCreator.createHTTP2Connection(
+                to: httpBin.port,
+                delegate: delegate,
+                on: eventLoop
+            )
+        )
         guard let http2Connection = maybeHTTP2Connection else {
             return XCTFail("Expected to have an HTTP2 connection here.")
         }
@@ -304,15 +320,17 @@ class HTTP2ConnectionTests: XCTestCase {
         var maybeRequest: HTTPClient.Request?
         var maybeRequestBag: RequestBag<ResponseAccumulator>?
         XCTAssertNoThrow(maybeRequest = try HTTPClient.Request(url: "https://localhost:\(httpBin.port)"))
-        XCTAssertNoThrow(maybeRequestBag = try RequestBag(
-            request: XCTUnwrap(maybeRequest),
-            eventLoopPreference: .indifferent,
-            task: .init(eventLoop: eventLoop, logger: .init(label: "test")),
-            redirectHandler: nil,
-            connectionDeadline: .distantFuture,
-            requestOptions: .forTests(),
-            delegate: ResponseAccumulator(request: XCTUnwrap(maybeRequest))
-        ))
+        XCTAssertNoThrow(
+            maybeRequestBag = try RequestBag(
+                request: XCTUnwrap(maybeRequest),
+                eventLoopPreference: .indifferent,
+                task: .init(eventLoop: eventLoop, logger: .init(label: "test")),
+                redirectHandler: nil,
+                connectionDeadline: .distantFuture,
+                requestOptions: .forTests(),
+                delegate: ResponseAccumulator(request: XCTUnwrap(maybeRequest))
+            )
+        )
         guard let requestBag = maybeRequestBag else {
             return XCTFail("Expected to have a request bag at this point")
         }
@@ -321,7 +339,9 @@ class HTTP2ConnectionTests: XCTestCase {
 
         XCTAssertNoThrow(try serverReceivedRequestPromise.futureResult.wait())
         var channelCount: Int?
-        XCTAssertNoThrow(channelCount = try eventLoop.submit { http2Connection.__forTesting_getStreamChannels().count }.wait())
+        XCTAssertNoThrow(
+            channelCount = try eventLoop.submit { http2Connection.__forTesting_getStreamChannels().count }.wait()
+        )
         XCTAssertEqual(channelCount, 1)
         triggerResponsePromise.succeed(())
 
@@ -331,7 +351,9 @@ class HTTP2ConnectionTests: XCTestCase {
         var retryCount = 0
         let maxRetries = 1000
         while retryCount < maxRetries {
-            XCTAssertNoThrow(channelCount = try eventLoop.submit { http2Connection.__forTesting_getStreamChannels().count }.wait())
+            XCTAssertNoThrow(
+                channelCount = try eventLoop.submit { http2Connection.__forTesting_getStreamChannels().count }.wait()
+            )
             if channelCount == 0 {
                 break
             }

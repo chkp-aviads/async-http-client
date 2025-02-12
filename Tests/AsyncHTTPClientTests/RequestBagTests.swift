@@ -12,7 +12,7 @@
 //
 //===----------------------------------------------------------------------===//
 
-@testable import AsyncHTTPClient
+import Atomics
 import Logging
 import NIOConcurrencyHelpers
 import NIOCore
@@ -20,6 +20,8 @@ import NIOEmbedded
 import NIOHTTP1
 import NIOPosix
 import XCTest
+
+@testable import AsyncHTTPClient
 
 final class RequestBagTests: XCTestCase {
     func testWriteBackpressureWorks() {
@@ -39,7 +41,8 @@ final class RequestBagTests: XCTestCase {
         let expectedWrites = bytesToSent / 100 + ((bytesToSent % 100 > 0) ? 1 : 0)
 
         let writeDonePromise = embeddedEventLoop.makePromise(of: Void.self)
-        let requestBody: HTTPClient.Body = .stream(contentLength: Int64(bytesToSent)) { writer -> EventLoopFuture<Void> in
+        let requestBody: HTTPClient.Body = .stream(contentLength: Int64(bytesToSent)) {
+            writer -> EventLoopFuture<Void> in
             @Sendable func write(donePromise: EventLoopPromise<Void>) {
                 let futureWrite: EventLoopFuture<Void>? = testState.withLockedValue { state in
                     XCTAssertTrue(state.streamIsAllowedToWrite)
@@ -67,20 +70,24 @@ final class RequestBagTests: XCTestCase {
         }
 
         var maybeRequest: HTTPClient.Request?
-        XCTAssertNoThrow(maybeRequest = try HTTPClient.Request(url: "https://swift.org", method: .POST, body: requestBody))
+        XCTAssertNoThrow(
+            maybeRequest = try HTTPClient.Request(url: "https://swift.org", method: .POST, body: requestBody)
+        )
         guard let request = maybeRequest else { return XCTFail("Expected to have a request") }
         let delegate = UploadCountingDelegate(eventLoop: embeddedEventLoop)
 
         var maybeRequestBag: RequestBag<UploadCountingDelegate>?
-        XCTAssertNoThrow(maybeRequestBag = try RequestBag(
-            request: request,
-            eventLoopPreference: .delegate(on: embeddedEventLoop),
-            task: .init(eventLoop: embeddedEventLoop, logger: logger),
-            redirectHandler: nil,
-            connectionDeadline: .now() + .seconds(30),
-            requestOptions: .forTests(),
-            delegate: delegate
-        ))
+        XCTAssertNoThrow(
+            maybeRequestBag = try RequestBag(
+                request: request,
+                eventLoopPreference: .delegate(on: embeddedEventLoop),
+                task: .init(eventLoop: embeddedEventLoop, logger: logger),
+                redirectHandler: nil,
+                connectionDeadline: .now() + .seconds(30),
+                requestOptions: .forTests(),
+                delegate: delegate
+            )
+        )
         guard let bag = maybeRequestBag else { return XCTFail("Expected to be able to create a request bag.") }
 
         XCTAssert(bag.task.eventLoop === embeddedEventLoop)
@@ -101,9 +108,11 @@ final class RequestBagTests: XCTestCase {
         // after starting the body stream we should have received two writes
         var receivedBytes = 0
         for i in 0..<expectedWrites {
-            XCTAssertNoThrow(try executor.receiveRequestBody {
-                receivedBytes += $0.readableBytes
-            })
+            XCTAssertNoThrow(
+                try executor.receiveRequestBody {
+                    receivedBytes += $0.readableBytes
+                }
+            )
             XCTAssertEqual(delegate.hitDidSendRequestPart, testState.withLockedValue { $0.writes })
 
             if i % 2 == 1 {
@@ -119,9 +128,13 @@ final class RequestBagTests: XCTestCase {
         XCTAssertEqual(receivedBytes, bytesToSent, "We have sent all request bytes...")
 
         XCTAssertNil(delegate.receivedHead, "Expected not to have a response head, before `receiveResponseHead`")
-        let responseHead = HTTPResponseHead(version: .http1_1, status: .ok, headers: .init([
-            ("Transfer-Encoding", "chunked"),
-        ]))
+        let responseHead = HTTPResponseHead(
+            version: .http1_1,
+            status: .ok,
+            headers: .init([
+                ("Transfer-Encoding", "chunked")
+            ])
+        )
         XCTAssertFalse(executor.signalledDemandForResponseBody)
         bag.receiveResponseHead(responseHead)
         XCTAssertEqual(responseHead, delegate.receivedHead)
@@ -133,7 +146,7 @@ final class RequestBagTests: XCTestCase {
         let bodyPart = ByteBuffer(bytes: 0..<32)
         for i in 0..<20 {
             let chunk = CircularBuffer(repeating: bodyPart, count: 10)
-            XCTAssertEqual(delegate.hitDidReceiveBodyPart, i * 10) // 0
+            XCTAssertEqual(delegate.hitDidReceiveBodyPart, i * 10)  // 0
             bag.receiveResponseBodyParts(chunk)
 
             // consume the 10 buffers
@@ -174,20 +187,24 @@ final class RequestBagTests: XCTestCase {
         }
 
         var maybeRequest: HTTPClient.Request?
-        XCTAssertNoThrow(maybeRequest = try HTTPClient.Request(url: "https://swift.org", method: .POST, body: requestBody))
+        XCTAssertNoThrow(
+            maybeRequest = try HTTPClient.Request(url: "https://swift.org", method: .POST, body: requestBody)
+        )
         guard let request = maybeRequest else { return XCTFail("Expected to have a request") }
 
         let delegate = UploadCountingDelegate(eventLoop: embeddedEventLoop)
         var maybeRequestBag: RequestBag<UploadCountingDelegate>?
-        XCTAssertNoThrow(maybeRequestBag = try RequestBag(
-            request: request,
-            eventLoopPreference: .delegate(on: embeddedEventLoop),
-            task: .init(eventLoop: embeddedEventLoop, logger: logger),
-            redirectHandler: nil,
-            connectionDeadline: .now() + .seconds(30),
-            requestOptions: .forTests(),
-            delegate: delegate
-        ))
+        XCTAssertNoThrow(
+            maybeRequestBag = try RequestBag(
+                request: request,
+                eventLoopPreference: .delegate(on: embeddedEventLoop),
+                task: .init(eventLoop: embeddedEventLoop, logger: logger),
+                redirectHandler: nil,
+                connectionDeadline: .now() + .seconds(30),
+                requestOptions: .forTests(),
+                delegate: delegate
+            )
+        )
         guard let bag = maybeRequestBag else { return XCTFail("Expected to be able to create a request bag.") }
         XCTAssert(bag.task.eventLoop === embeddedEventLoop)
 
@@ -220,15 +237,17 @@ final class RequestBagTests: XCTestCase {
 
         let delegate = UploadCountingDelegate(eventLoop: embeddedEventLoop)
         var maybeRequestBag: RequestBag<UploadCountingDelegate>?
-        XCTAssertNoThrow(maybeRequestBag = try RequestBag(
-            request: request,
-            eventLoopPreference: .delegate(on: embeddedEventLoop),
-            task: .init(eventLoop: embeddedEventLoop, logger: logger),
-            redirectHandler: nil,
-            connectionDeadline: .now() + .seconds(30),
-            requestOptions: .forTests(),
-            delegate: delegate
-        ))
+        XCTAssertNoThrow(
+            maybeRequestBag = try RequestBag(
+                request: request,
+                eventLoopPreference: .delegate(on: embeddedEventLoop),
+                task: .init(eventLoop: embeddedEventLoop, logger: logger),
+                redirectHandler: nil,
+                connectionDeadline: .now() + .seconds(30),
+                requestOptions: .forTests(),
+                delegate: delegate
+            )
+        )
         guard let bag = maybeRequestBag else { return XCTFail("Expected to be able to create a request bag.") }
         XCTAssert(bag.eventLoop === embeddedEventLoop)
 
@@ -253,15 +272,17 @@ final class RequestBagTests: XCTestCase {
 
         let delegate = UploadCountingDelegate(eventLoop: embeddedEventLoop)
         var maybeRequestBag: RequestBag<UploadCountingDelegate>?
-        XCTAssertNoThrow(maybeRequestBag = try RequestBag(
-            request: request,
-            eventLoopPreference: .delegate(on: embeddedEventLoop),
-            task: .init(eventLoop: embeddedEventLoop, logger: logger),
-            redirectHandler: nil,
-            connectionDeadline: .now() + .seconds(30),
-            requestOptions: .forTests(),
-            delegate: delegate
-        ))
+        XCTAssertNoThrow(
+            maybeRequestBag = try RequestBag(
+                request: request,
+                eventLoopPreference: .delegate(on: embeddedEventLoop),
+                task: .init(eventLoop: embeddedEventLoop, logger: logger),
+                redirectHandler: nil,
+                connectionDeadline: .now() + .seconds(30),
+                requestOptions: .forTests(),
+                delegate: delegate
+            )
+        )
         guard let bag = maybeRequestBag else { return XCTFail("Expected to be able to create a request bag.") }
         XCTAssert(bag.eventLoop === embeddedEventLoop)
 
@@ -292,15 +313,17 @@ final class RequestBagTests: XCTestCase {
 
         let delegate = UploadCountingDelegate(eventLoop: embeddedEventLoop)
         var maybeRequestBag: RequestBag<UploadCountingDelegate>?
-        XCTAssertNoThrow(maybeRequestBag = try RequestBag(
-            request: request,
-            eventLoopPreference: .delegate(on: embeddedEventLoop),
-            task: .init(eventLoop: embeddedEventLoop, logger: logger),
-            redirectHandler: nil,
-            connectionDeadline: .now() + .seconds(30),
-            requestOptions: .forTests(),
-            delegate: delegate
-        ))
+        XCTAssertNoThrow(
+            maybeRequestBag = try RequestBag(
+                request: request,
+                eventLoopPreference: .delegate(on: embeddedEventLoop),
+                task: .init(eventLoop: embeddedEventLoop, logger: logger),
+                redirectHandler: nil,
+                connectionDeadline: .now() + .seconds(30),
+                requestOptions: .forTests(),
+                delegate: delegate
+            )
+        )
         guard let bag = maybeRequestBag else { return XCTFail("Expected to be able to create a request bag.") }
         XCTAssert(bag.eventLoop === embeddedEventLoop)
 
@@ -333,15 +356,17 @@ final class RequestBagTests: XCTestCase {
 
         let delegate = UploadCountingDelegate(eventLoop: embeddedEventLoop)
         var maybeRequestBag: RequestBag<UploadCountingDelegate>?
-        XCTAssertNoThrow(maybeRequestBag = try RequestBag(
-            request: request,
-            eventLoopPreference: .delegate(on: embeddedEventLoop),
-            task: .init(eventLoop: embeddedEventLoop, logger: logger),
-            redirectHandler: nil,
-            connectionDeadline: .now() + .seconds(30),
-            requestOptions: .forTests(),
-            delegate: delegate
-        ))
+        XCTAssertNoThrow(
+            maybeRequestBag = try RequestBag(
+                request: request,
+                eventLoopPreference: .delegate(on: embeddedEventLoop),
+                task: .init(eventLoop: embeddedEventLoop, logger: logger),
+                redirectHandler: nil,
+                connectionDeadline: .now() + .seconds(30),
+                requestOptions: .forTests(),
+                delegate: delegate
+            )
+        )
         guard let bag = maybeRequestBag else { return XCTFail("Expected to be able to create a request bag.") }
         XCTAssert(bag.eventLoop === embeddedEventLoop)
 
@@ -374,15 +399,17 @@ final class RequestBagTests: XCTestCase {
 
         let delegate = UploadCountingDelegate(eventLoop: embeddedEventLoop)
         var maybeRequestBag: RequestBag<UploadCountingDelegate>?
-        XCTAssertNoThrow(maybeRequestBag = try RequestBag(
-            request: request,
-            eventLoopPreference: .delegate(on: embeddedEventLoop),
-            task: .init(eventLoop: embeddedEventLoop, logger: logger),
-            redirectHandler: nil,
-            connectionDeadline: .now() + .seconds(30),
-            requestOptions: .forTests(),
-            delegate: delegate
-        ))
+        XCTAssertNoThrow(
+            maybeRequestBag = try RequestBag(
+                request: request,
+                eventLoopPreference: .delegate(on: embeddedEventLoop),
+                task: .init(eventLoop: embeddedEventLoop, logger: logger),
+                redirectHandler: nil,
+                connectionDeadline: .now() + .seconds(30),
+                requestOptions: .forTests(),
+                delegate: delegate
+            )
+        )
         guard let bag = maybeRequestBag else { return XCTFail("Expected to be able to create a request bag.") }
 
         let queuer = MockTaskQueuer()
@@ -408,15 +435,17 @@ final class RequestBagTests: XCTestCase {
 
         let delegate = UploadCountingDelegate(eventLoop: embeddedEventLoop)
         var maybeRequestBag: RequestBag<UploadCountingDelegate>?
-        XCTAssertNoThrow(maybeRequestBag = try RequestBag(
-            request: request,
-            eventLoopPreference: .delegate(on: embeddedEventLoop),
-            task: .init(eventLoop: embeddedEventLoop, logger: logger),
-            redirectHandler: nil,
-            connectionDeadline: .now() + .seconds(30),
-            requestOptions: .forTests(),
-            delegate: delegate
-        ))
+        XCTAssertNoThrow(
+            maybeRequestBag = try RequestBag(
+                request: request,
+                eventLoopPreference: .delegate(on: embeddedEventLoop),
+                task: .init(eventLoop: embeddedEventLoop, logger: logger),
+                redirectHandler: nil,
+                connectionDeadline: .now() + .seconds(30),
+                requestOptions: .forTests(),
+                delegate: delegate
+            )
+        )
         guard let bag = maybeRequestBag else { return XCTFail("Expected to be able to create a request bag.") }
 
         let executor = MockRequestExecutor(eventLoop: embeddedEventLoop)
@@ -436,23 +465,27 @@ final class RequestBagTests: XCTestCase {
         let logger = Logger(label: "test")
 
         var maybeRequest: HTTPClient.Request?
-        XCTAssertNoThrow(maybeRequest = try HTTPClient.Request(
-            url: "https://swift.org",
-            body: .bytes([1, 2, 3, 4, 5])
-        ))
+        XCTAssertNoThrow(
+            maybeRequest = try HTTPClient.Request(
+                url: "https://swift.org",
+                body: .bytes([1, 2, 3, 4, 5])
+            )
+        )
         guard let request = maybeRequest else { return XCTFail("Expected to have a request") }
 
         let delegate = UploadCountingDelegate(eventLoop: embeddedEventLoop)
         var maybeRequestBag: RequestBag<UploadCountingDelegate>?
-        XCTAssertNoThrow(maybeRequestBag = try RequestBag(
-            request: request,
-            eventLoopPreference: .delegate(on: embeddedEventLoop),
-            task: .init(eventLoop: embeddedEventLoop, logger: logger),
-            redirectHandler: nil,
-            connectionDeadline: .now() + .seconds(30),
-            requestOptions: .forTests(),
-            delegate: delegate
-        ))
+        XCTAssertNoThrow(
+            maybeRequestBag = try RequestBag(
+                request: request,
+                eventLoopPreference: .delegate(on: embeddedEventLoop),
+                task: .init(eventLoop: embeddedEventLoop, logger: logger),
+                redirectHandler: nil,
+                connectionDeadline: .now() + .seconds(30),
+                requestOptions: .forTests(),
+                delegate: delegate
+            )
+        )
         guard let bag = maybeRequestBag else { return XCTFail("Expected to be able to create a request bag.") }
 
         let executor = MockRequestExecutor(eventLoop: embeddedEventLoop)
@@ -476,11 +509,13 @@ final class RequestBagTests: XCTestCase {
 
         var maybeRequest: HTTPClient.Request?
 
-        XCTAssertNoThrow(maybeRequest = try HTTPClient.Request(
-            url: "https://swift.org",
-            method: .POST,
-            body: .byteBuffer(.init(bytes: [1]))
-        ))
+        XCTAssertNoThrow(
+            maybeRequest = try HTTPClient.Request(
+                url: "https://swift.org",
+                method: .POST,
+                body: .byteBuffer(.init(bytes: [1]))
+            )
+        )
         guard let request = maybeRequest else { return XCTFail("Expected to have a request") }
 
         struct MyError: Error, Equatable {}
@@ -506,15 +541,17 @@ final class RequestBagTests: XCTestCase {
         }
         let delegate = Delegate(didFinishPromise: embeddedEventLoop.makePromise())
         var maybeRequestBag: RequestBag<Delegate>?
-        XCTAssertNoThrow(maybeRequestBag = try RequestBag(
-            request: request,
-            eventLoopPreference: .delegate(on: embeddedEventLoop),
-            task: .init(eventLoop: embeddedEventLoop, logger: logger),
-            redirectHandler: nil,
-            connectionDeadline: .now() + .seconds(30),
-            requestOptions: .forTests(),
-            delegate: delegate
-        ))
+        XCTAssertNoThrow(
+            maybeRequestBag = try RequestBag(
+                request: request,
+                eventLoopPreference: .delegate(on: embeddedEventLoop),
+                task: .init(eventLoop: embeddedEventLoop, logger: logger),
+                redirectHandler: nil,
+                connectionDeadline: .now() + .seconds(30),
+                requestOptions: .forTests(),
+                delegate: delegate
+            )
+        )
         guard let bag = maybeRequestBag else { return XCTFail("Expected to be able to create a request bag.") }
 
         let executor = MockRequestExecutor(eventLoop: embeddedEventLoop)
@@ -545,40 +582,44 @@ final class RequestBagTests: XCTestCase {
         let writeSecondPartPromise = embeddedEventLoop.makePromise(of: Void.self)
         let firstWriteSuccess: NIOLockedValueBox<Bool> = .init(false)
 
-        XCTAssertNoThrow(maybeRequest = try HTTPClient.Request(
-            url: "https://swift.org",
-            method: .POST,
-            headers: ["content-length": "12"],
-            body: .stream(contentLength: 12) { writer -> EventLoopFuture<Void> in
-                return writer.write(.byteBuffer(.init(bytes: 0...3))).flatMap { _ in
-                    firstWriteSuccess.withLockedValue { $0 = true }
+        XCTAssertNoThrow(
+            maybeRequest = try HTTPClient.Request(
+                url: "https://swift.org",
+                method: .POST,
+                headers: ["content-length": "12"],
+                body: .stream(contentLength: 12) { writer -> EventLoopFuture<Void> in
+                    writer.write(.byteBuffer(.init(bytes: 0...3))).flatMap { _ in
+                        firstWriteSuccess.withLockedValue { $0 = true }
 
-                    return writeSecondPartPromise.futureResult
-                }.flatMap {
-                    return writer.write(.byteBuffer(.init(bytes: 4...7)))
-                }.always { result in
-                    XCTAssertTrue(firstWriteSuccess.withLockedValue { $0 })
+                        return writeSecondPartPromise.futureResult
+                    }.flatMap {
+                        writer.write(.byteBuffer(.init(bytes: 4...7)))
+                    }.always { result in
+                        XCTAssertTrue(firstWriteSuccess.withLockedValue { $0 })
 
-                    guard case .failure(let error) = result else {
-                        return XCTFail("Expected the second write to fail")
+                        guard case .failure(let error) = result else {
+                            return XCTFail("Expected the second write to fail")
+                        }
+                        XCTAssertEqual(error as? HTTPClientError, .requestStreamCancelled)
                     }
-                    XCTAssertEqual(error as? HTTPClientError, .requestStreamCancelled)
                 }
-            }
-        ))
+            )
+        )
         guard let request = maybeRequest else { return XCTFail("Expected to have a request") }
 
         let delegate = UploadCountingDelegate(eventLoop: embeddedEventLoop)
         var maybeRequestBag: RequestBag<UploadCountingDelegate>?
-        XCTAssertNoThrow(maybeRequestBag = try RequestBag(
-            request: request,
-            eventLoopPreference: .delegate(on: embeddedEventLoop),
-            task: .init(eventLoop: embeddedEventLoop, logger: logger),
-            redirectHandler: nil,
-            connectionDeadline: .now() + .seconds(30),
-            requestOptions: .forTests(),
-            delegate: delegate
-        ))
+        XCTAssertNoThrow(
+            maybeRequestBag = try RequestBag(
+                request: request,
+                eventLoopPreference: .delegate(on: embeddedEventLoop),
+                task: .init(eventLoop: embeddedEventLoop, logger: logger),
+                redirectHandler: nil,
+                connectionDeadline: .now() + .seconds(30),
+                requestOptions: .forTests(),
+                delegate: delegate
+            )
+        )
         guard let bag = maybeRequestBag else { return XCTFail("Expected to be able to create a request bag.") }
 
         let executor = MockRequestExecutor(eventLoop: embeddedEventLoop)
@@ -614,15 +655,17 @@ final class RequestBagTests: XCTestCase {
 
         let delegate = UploadCountingDelegate(eventLoop: embeddedEventLoop)
         var maybeRequestBag: RequestBag<UploadCountingDelegate>?
-        XCTAssertNoThrow(maybeRequestBag = try RequestBag(
-            request: request,
-            eventLoopPreference: .delegate(on: embeddedEventLoop),
-            task: .init(eventLoop: embeddedEventLoop, logger: logger),
-            redirectHandler: nil,
-            connectionDeadline: .now() + .seconds(30),
-            requestOptions: .forTests(),
-            delegate: delegate
-        ))
+        XCTAssertNoThrow(
+            maybeRequestBag = try RequestBag(
+                request: request,
+                eventLoopPreference: .delegate(on: embeddedEventLoop),
+                task: .init(eventLoop: embeddedEventLoop, logger: logger),
+                redirectHandler: nil,
+                connectionDeadline: .now() + .seconds(30),
+                requestOptions: .forTests(),
+                delegate: delegate
+            )
+        )
         guard let bag = maybeRequestBag else { return XCTFail("Expected to be able to create a request bag.") }
 
         let executor = MockRequestExecutor(eventLoop: embeddedEventLoop)
@@ -670,36 +713,47 @@ final class RequestBagTests: XCTestCase {
         let delegate = UploadCountingDelegate(eventLoop: embeddedEventLoop)
         var maybeRequestBag: RequestBag<UploadCountingDelegate>?
         var redirectTriggered = false
-        XCTAssertNoThrow(maybeRequestBag = try RequestBag(
-            request: request,
-            eventLoopPreference: .delegate(on: embeddedEventLoop),
-            task: .init(eventLoop: embeddedEventLoop, logger: logger),
-            redirectHandler: .init(
+        XCTAssertNoThrow(
+            maybeRequestBag = try RequestBag(
                 request: request,
-                redirectState: RedirectState(
-                    .follow(max: 5, allowCycles: false),
-                    initialURL: request.url.absoluteString
-                )!,
-                execute: { request, _ in
-                    XCTAssertEqual(request.url.absoluteString, "https://swift.org/sswg")
-                    XCTAssertFalse(redirectTriggered)
+                eventLoopPreference: .delegate(on: embeddedEventLoop),
+                task: .init(eventLoop: embeddedEventLoop, logger: logger),
+                redirectHandler: .init(
+                    request: request,
+                    redirectState: RedirectState(
+                        .follow(max: 5, allowCycles: false),
+                        initialURL: request.url.absoluteString
+                    )!,
+                    execute: { request, _ in
+                        XCTAssertEqual(request.url.absoluteString, "https://swift.org/sswg")
+                        XCTAssertFalse(redirectTriggered)
 
-                    let task = HTTPClient.Task<UploadCountingDelegate.Response>(eventLoop: embeddedEventLoop, logger: logger)
-                    task.promise.fail(HTTPClientError.cancelled)
-                    redirectTriggered = true
-                    return task
-                }
-            ),
-            connectionDeadline: .now() + .seconds(30),
-            requestOptions: .forTests(),
-            delegate: delegate
-        ))
+                        let task = HTTPClient.Task<UploadCountingDelegate.Response>(
+                            eventLoop: embeddedEventLoop,
+                            logger: logger
+                        )
+                        task.promise.fail(HTTPClientError.cancelled)
+                        redirectTriggered = true
+                        return task
+                    }
+                ),
+                connectionDeadline: .now() + .seconds(30),
+                requestOptions: .forTests(),
+                delegate: delegate
+            )
+        )
         guard let bag = maybeRequestBag else { return XCTFail("Expected to be able to create a request bag.") }
 
         let executor = MockRequestExecutor(eventLoop: embeddedEventLoop)
         executor.runRequest(bag)
         XCTAssertFalse(executor.signalledDemandForResponseBody)
-        bag.receiveResponseHead(.init(version: .http1_1, status: .permanentRedirect, headers: ["content-length": "\(3 * 1024)", "location": "https://swift.org/sswg"]))
+        bag.receiveResponseHead(
+            .init(
+                version: .http1_1,
+                status: .permanentRedirect,
+                headers: ["content-length": "\(3 * 1024)", "location": "https://swift.org/sswg"]
+            )
+        )
         XCTAssertNil(delegate.backpressurePromise)
         XCTAssertTrue(executor.signalledDemandForResponseBody)
         executor.resetResponseStreamDemandSignal()
@@ -745,36 +799,47 @@ final class RequestBagTests: XCTestCase {
         let delegate = UploadCountingDelegate(eventLoop: embeddedEventLoop)
         var maybeRequestBag: RequestBag<UploadCountingDelegate>?
         var redirectTriggered = false
-        XCTAssertNoThrow(maybeRequestBag = try RequestBag(
-            request: request,
-            eventLoopPreference: .delegate(on: embeddedEventLoop),
-            task: .init(eventLoop: embeddedEventLoop, logger: logger),
-            redirectHandler: .init(
+        XCTAssertNoThrow(
+            maybeRequestBag = try RequestBag(
                 request: request,
-                redirectState: RedirectState(
-                    .follow(max: 5, allowCycles: false),
-                    initialURL: request.url.absoluteString
-                )!,
-                execute: { request, _ in
-                    XCTAssertEqual(request.url.absoluteString, "https://swift.org/sswg")
-                    XCTAssertFalse(redirectTriggered)
+                eventLoopPreference: .delegate(on: embeddedEventLoop),
+                task: .init(eventLoop: embeddedEventLoop, logger: logger),
+                redirectHandler: .init(
+                    request: request,
+                    redirectState: RedirectState(
+                        .follow(max: 5, allowCycles: false),
+                        initialURL: request.url.absoluteString
+                    )!,
+                    execute: { request, _ in
+                        XCTAssertEqual(request.url.absoluteString, "https://swift.org/sswg")
+                        XCTAssertFalse(redirectTriggered)
 
-                    let task = HTTPClient.Task<UploadCountingDelegate.Response>(eventLoop: embeddedEventLoop, logger: logger)
-                    task.promise.fail(HTTPClientError.cancelled)
-                    redirectTriggered = true
-                    return task
-                }
-            ),
-            connectionDeadline: .now() + .seconds(30),
-            requestOptions: .forTests(),
-            delegate: delegate
-        ))
+                        let task = HTTPClient.Task<UploadCountingDelegate.Response>(
+                            eventLoop: embeddedEventLoop,
+                            logger: logger
+                        )
+                        task.promise.fail(HTTPClientError.cancelled)
+                        redirectTriggered = true
+                        return task
+                    }
+                ),
+                connectionDeadline: .now() + .seconds(30),
+                requestOptions: .forTests(),
+                delegate: delegate
+            )
+        )
         guard let bag = maybeRequestBag else { return XCTFail("Expected to be able to create a request bag.") }
 
         let executor = MockRequestExecutor(eventLoop: embeddedEventLoop)
         executor.runRequest(bag)
         XCTAssertFalse(executor.signalledDemandForResponseBody)
-        bag.receiveResponseHead(.init(version: .http1_1, status: .permanentRedirect, headers: ["content-length": "\(4 * 1024)", "location": "https://swift.org/sswg"]))
+        bag.receiveResponseHead(
+            .init(
+                version: .http1_1,
+                status: .permanentRedirect,
+                headers: ["content-length": "\(4 * 1024)", "location": "https://swift.org/sswg"]
+            )
+        )
         XCTAssertNil(delegate.backpressurePromise)
         XCTAssertFalse(executor.signalledDemandForResponseBody)
         XCTAssertTrue(executor.isCancelled)
@@ -794,36 +859,47 @@ final class RequestBagTests: XCTestCase {
         let delegate = UploadCountingDelegate(eventLoop: embeddedEventLoop)
         var maybeRequestBag: RequestBag<UploadCountingDelegate>?
         var redirectTriggered = false
-        XCTAssertNoThrow(maybeRequestBag = try RequestBag(
-            request: request,
-            eventLoopPreference: .delegate(on: embeddedEventLoop),
-            task: .init(eventLoop: embeddedEventLoop, logger: logger),
-            redirectHandler: .init(
+        XCTAssertNoThrow(
+            maybeRequestBag = try RequestBag(
                 request: request,
-                redirectState: RedirectState(
-                    .follow(max: 5, allowCycles: false),
-                    initialURL: request.url.absoluteString
-                )!,
-                execute: { request, _ in
-                    XCTAssertEqual(request.url.absoluteString, "https://swift.org/sswg")
-                    XCTAssertFalse(redirectTriggered)
+                eventLoopPreference: .delegate(on: embeddedEventLoop),
+                task: .init(eventLoop: embeddedEventLoop, logger: logger),
+                redirectHandler: .init(
+                    request: request,
+                    redirectState: RedirectState(
+                        .follow(max: 5, allowCycles: false),
+                        initialURL: request.url.absoluteString
+                    )!,
+                    execute: { request, _ in
+                        XCTAssertEqual(request.url.absoluteString, "https://swift.org/sswg")
+                        XCTAssertFalse(redirectTriggered)
 
-                    let task = HTTPClient.Task<UploadCountingDelegate.Response>(eventLoop: embeddedEventLoop, logger: logger)
-                    task.promise.fail(HTTPClientError.cancelled)
-                    redirectTriggered = true
-                    return task
-                }
-            ),
-            connectionDeadline: .now() + .seconds(30),
-            requestOptions: .forTests(),
-            delegate: delegate
-        ))
+                        let task = HTTPClient.Task<UploadCountingDelegate.Response>(
+                            eventLoop: embeddedEventLoop,
+                            logger: logger
+                        )
+                        task.promise.fail(HTTPClientError.cancelled)
+                        redirectTriggered = true
+                        return task
+                    }
+                ),
+                connectionDeadline: .now() + .seconds(30),
+                requestOptions: .forTests(),
+                delegate: delegate
+            )
+        )
         guard let bag = maybeRequestBag else { return XCTFail("Expected to be able to create a request bag.") }
 
         let executor = MockRequestExecutor(eventLoop: embeddedEventLoop)
         executor.runRequest(bag)
         XCTAssertFalse(executor.signalledDemandForResponseBody)
-        bag.receiveResponseHead(.init(version: .http1_1, status: .permanentRedirect, headers: ["content-length": "\(3 * 1024)", "location": "https://swift.org/sswg"]))
+        bag.receiveResponseHead(
+            .init(
+                version: .http1_1,
+                status: .permanentRedirect,
+                headers: ["content-length": "\(3 * 1024)", "location": "https://swift.org/sswg"]
+            )
+        )
         XCTAssertNil(delegate.backpressurePromise)
         XCTAssertTrue(executor.signalledDemandForResponseBody)
         executor.resetResponseStreamDemandSignal()
@@ -867,7 +943,9 @@ final class RequestBagTests: XCTestCase {
 
         do {
             var maybeRequest: HTTPClient.Request?
-            XCTAssertNoThrow(maybeRequest = try HTTPClient.Request(url: "http://localhost:\(httpBin.port)/", method: .POST))
+            XCTAssertNoThrow(
+                maybeRequest = try HTTPClient.Request(url: "http://localhost:\(httpBin.port)/", method: .POST)
+            )
             guard var request = maybeRequest else { return XCTFail("Expected to have a request here") }
 
             let writerPromise = group.any().makePromise(of: HTTPClient.Body.StreamWriter.self)
@@ -975,7 +1053,11 @@ class UploadCountingDelegate: HTTPClientResponseDelegate {
 }
 
 final class MockTaskQueuer: HTTPRequestScheduler {
-    private(set) var hitCancelCount = 0
+    private let _hitCancelCount = ManagedAtomic(0)
+
+    var hitCancelCount: Int {
+        self._hitCancelCount.load(ordering: .sequentiallyConsistent)
+    }
 
     let onCancelRequest: (@Sendable (HTTPSchedulableRequest) -> Void)?
 
@@ -984,7 +1066,7 @@ final class MockTaskQueuer: HTTPRequestScheduler {
     }
 
     func cancelRequest(_ request: HTTPSchedulableRequest) {
-        self.hitCancelCount += 1
+        self._hitCancelCount.wrappingIncrement(ordering: .sequentiallyConsistent)
         self.onCancelRequest?(request)
     }
 }

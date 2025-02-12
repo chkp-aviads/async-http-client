@@ -12,12 +12,13 @@
 //
 //===----------------------------------------------------------------------===//
 
-@testable import AsyncHTTPClient
 import Logging
 import NIOCore
 import NIOEmbedded
 import NIOHTTP1
 import NIOHTTP2
+
+@testable import AsyncHTTPClient
 
 extension EmbeddedChannel {
     public func receiveHeadAndVerify(_ verify: (HTTPRequestHead) throws -> Void = { _ in }) throws {
@@ -86,8 +87,8 @@ extension EmbeddedChannel {
         let decoder = try self.pipeline.syncOperations.handler(type: ByteToMessageHandler<HTTPResponseDecoder>.self)
         let encoder = try self.pipeline.syncOperations.handler(type: HTTPRequestEncoder.self)
 
-        let removeDecoderFuture = self.pipeline.removeHandler(decoder)
-        let removeEncoderFuture = self.pipeline.removeHandler(encoder)
+        let removeDecoderFuture = self.pipeline.syncOperations.removeHandler(decoder)
+        let removeEncoderFuture = self.pipeline.syncOperations.removeHandler(encoder)
 
         self.embeddedEventLoop.run()
 
@@ -111,6 +112,6 @@ public struct HTTP1EmbeddedChannelError: Error, Hashable, CustomStringConvertibl
     }
 
     public var description: String {
-        return self.reason
+        self.reason
     }
 }

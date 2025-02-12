@@ -68,8 +68,10 @@ final class HTTP2ClientRequestHandler: ChannelDuplexHandler {
     }
 
     func handlerAdded(context: ChannelHandlerContext) {
-        assert(context.eventLoop === self.eventLoop,
-               "The handler must be added to a channel that runs on the eventLoop it was initialized with.")
+        assert(
+            context.eventLoop === self.eventLoop,
+            "The handler must be added to a channel that runs on the eventLoop it was initialized with."
+        )
         self.channelContext = context
 
         let isWritable = context.channel.isActive && context.channel.isWritable
@@ -219,7 +221,7 @@ final class HTTP2ClientRequestHandler: ChannelDuplexHandler {
             // that the request is neither failed nor finished yet
             self.request!.resumeRequestBodyStream()
 
-        case .forwardResponseHead(let head, pauseRequestBodyStream: let pauseRequestBodyStream):
+        case .forwardResponseHead(let head, let pauseRequestBodyStream):
             // We can force unwrap the request here, as we have just validated in the state machine,
             // that the request is neither failed nor finished yet
             self.request!.receiveResponseHead(head)
@@ -241,6 +243,7 @@ final class HTTP2ClientRequestHandler: ChannelDuplexHandler {
             self.request!.fail(error)
             self.request = nil
             self.runTimeoutAction(.clearIdleReadTimeoutTimer, context: context)
+            self.runTimeoutAction(.clearIdleWriteTimeoutTimer, context: context)
             // No matter the error reason, we must always make sure the h2 stream is closed. Only
             // once the h2 stream is closed, it is released from the h2 multiplexer. The
             // HTTPRequestStateMachine may signal finalAction: .none in the error case (as this is
@@ -253,6 +256,7 @@ final class HTTP2ClientRequestHandler: ChannelDuplexHandler {
             self.request!.succeedRequest(finalParts)
             self.request = nil
             self.runTimeoutAction(.clearIdleReadTimeoutTimer, context: context)
+            self.runTimeoutAction(.clearIdleWriteTimeoutTimer, context: context)
             self.runSuccessfulFinalAction(finalAction, context: context)
 
         case .failSendBodyPart(let error, let writePromise), .failSendStreamFinished(let error, let writePromise):
@@ -271,7 +275,10 @@ final class HTTP2ClientRequestHandler: ChannelDuplexHandler {
         self.run(self.state.headSent(), context: context)
     }
 
-    private func runSuccessfulFinalAction(_ action: HTTPRequestStateMachine.Action.FinalSuccessfulRequestAction, context: ChannelHandlerContext) {
+    private func runSuccessfulFinalAction(
+        _ action: HTTPRequestStateMachine.Action.FinalSuccessfulRequestAction,
+        context: ChannelHandlerContext
+    ) {
         switch action {
         case .close, .none:
             // The actions returned here come from an `HTTPRequestStateMachine` that assumes http/1.1
@@ -284,7 +291,11 @@ final class HTTP2ClientRequestHandler: ChannelDuplexHandler {
         }
     }
 
-    private func runFailedFinalAction(_ action: HTTPRequestStateMachine.Action.FinalFailedRequestAction, context: ChannelHandlerContext, error: Error) {
+    private func runFailedFinalAction(
+        _ action: HTTPRequestStateMachine.Action.FinalFailedRequestAction,
+        context: ChannelHandlerContext,
+        error: Error
+    ) {
         // We must close the http2 stream after the request has finished. Since the request failed,
         // we have no idea what the h2 streams state was. To be on the save side, we explicitly close
         // the h2 stream. This will break a reference cycle in HTTP2Connection.
@@ -371,7 +382,8 @@ final class HTTP2ClientRequestHandler: ChannelDuplexHandler {
 
     // MARK: Private HTTPRequestExecutor
 
-    private func writeRequestBodyPart0(_ data: IOData, request: HTTPExecutableRequest, promise: EventLoopPromise<Void>?) {
+    private func writeRequestBodyPart0(_ data: IOData, request: HTTPExecutableRequest, promise: EventLoopPromise<Void>?)
+    {
         guard self.request === request, let context = self.channelContext else {
             // Because the HTTPExecutableRequest may run in a different thread to our eventLoop,
             // calls from the HTTPExecutableRequest to our ChannelHandler may arrive here after
@@ -424,6 +436,9 @@ final class HTTP2ClientRequestHandler: ChannelDuplexHandler {
         self.run(action, context: context)
     }
 }
+
+@available(*, unavailable)
+extension HTTP2ClientRequestHandler: Sendable {}
 
 extension HTTP2ClientRequestHandler: HTTPRequestExecutor {
     func writeRequestBodyPart(_ data: IOData, request: HTTPExecutableRequest, promise: EventLoopPromise<Void>?) {

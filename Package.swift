@@ -21,7 +21,7 @@ let package = Package(
         .iOS(.v12), .macOS(.v10_14), .tvOS(.v12), .watchOS(.v5)
     ],
     products: [
-        .library(name: "AsyncHTTPClient", targets: ["AsyncHTTPClient"]),
+        .library(name: "AsyncHTTPClient", targets: ["AsyncHTTPClient"])
     ],
     dependencies: [
         .package(url: "https://github.com/chkp-aviads/swift-nio.git", branch: "main"),
@@ -31,14 +31,13 @@ let package = Package(
         .package(url: "https://github.com/chkp-aviads/swift-nio-transport-services.git", branch: "main"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.4.4"),
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.0.2"),
-        .package(url: "https://github.com/apple/swift-docc-plugin.git", from: "1.0.0"),
         .package(url: "https://github.com/apple/swift-algorithms.git", from: "1.0.0"),
     ],
     targets: [
         .target(
             name: "CAsyncHTTPClient",
             cSettings: [
-                .define("_GNU_SOURCE"),
+                .define("_GNU_SOURCE")
             ]
         ),
         .target(
@@ -87,3 +86,14 @@ let package = Package(
         ),
     ]
 )
+
+// ---    STANDARD CROSS-REPO SETTINGS DO NOT EDIT   --- //
+for target in package.targets {
+    if target.type != .plugin {
+        var settings = target.swiftSettings ?? []
+        // https://github.com/swiftlang/swift-evolution/blob/main/proposals/0444-member-import-visibility.md
+        settings.append(.enableUpcomingFeature("MemberImportVisibility"))
+        target.swiftSettings = settings
+    }
+}
+// --- END: STANDARD CROSS-REPO SETTINGS DO NOT EDIT --- //

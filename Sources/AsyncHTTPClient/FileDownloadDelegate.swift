@@ -87,12 +87,12 @@ public final class FileDownloadDelegate: HTTPClientResponseDelegate {
             path: path,
             pool: .some(pool),
             reportHead: reportHead.map { reportHead in
-                return { _, head in
+                { _, head in
                     reportHead(head)
                 }
             },
             reportProgress: reportProgress.map { reportProgress in
-                return { _, head in
+                { _, head in
                     reportProgress(head)
                 }
             }
@@ -117,12 +117,12 @@ public final class FileDownloadDelegate: HTTPClientResponseDelegate {
             path: path,
             pool: nil,
             reportHead: reportHead.map { reportHead in
-                return { _, head in
+                { _, head in
                     reportHead(head)
                 }
             },
             reportProgress: reportProgress.map { reportProgress in
-                return { _, head in
+                { _, head in
                     reportProgress(head)
                 }
             }
@@ -136,7 +136,8 @@ public final class FileDownloadDelegate: HTTPClientResponseDelegate {
         self.reportHead?(task, head)
 
         if let totalBytesString = head.headers.first(name: "Content-Length"),
-           let totalBytes = Int(totalBytesString) {
+            let totalBytes = Int(totalBytesString)
+        {
             self.progress.totalBytes = totalBytes
         }
 
@@ -166,7 +167,7 @@ public final class FileDownloadDelegate: HTTPClientResponseDelegate {
             }
         } else {
             let fileHandleFuture = io.openFile(
-                path: self.filePath,
+                _deprecatedPath: self.filePath,
                 mode: .write,
                 flags: .allowFileCreation(),
                 eventLoop: task.eventLoop

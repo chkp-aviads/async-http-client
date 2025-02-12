@@ -13,9 +13,11 @@
 //===----------------------------------------------------------------------===//
 
 import Algorithms
-@testable import AsyncHTTPClient
 import NIOCore
+import NIOHTTP1
 import XCTest
+
+@testable import AsyncHTTPClient
 
 @available(macOS 10.15, iOS 13.0, watchOS 6.0, tvOS 13.0, *)
 class HTTPClientRequestTests: XCTestCase {
@@ -27,31 +29,40 @@ class HTTPClientRequestTests: XCTestCase {
         XCTAsyncTest {
             var request = Request(url: "https://example.com/get")
             request.headers = [
-                "custom-header": "custom-header-value",
+                "custom-header": "custom-header-value"
             ]
             var preparedRequest: PreparedRequest?
             XCTAssertNoThrow(preparedRequest = try PreparedRequest(request))
             guard let preparedRequest = preparedRequest else { return }
 
-            XCTAssertEqual(preparedRequest.poolKey, .init(
-                scheme: .https,
-                connectionTarget: .domain(name: "example.com", port: 443),
-                tlsConfiguration: nil,
-                serverNameIndicatorOverride: nil
-            ))
-            XCTAssertEqual(preparedRequest.head, .init(
-                version: .http1_1,
-                method: .GET,
-                uri: "/get",
-                headers: [
-                    "host": "example.com",
-                    "custom-header": "custom-header-value",
-                ]
-            ))
-            XCTAssertEqual(preparedRequest.requestFramingMetadata, .init(
-                connectionClose: false,
-                body: .fixedSize(0)
-            ))
+            XCTAssertEqual(
+                preparedRequest.poolKey,
+                .init(
+                    scheme: .https,
+                    connectionTarget: .domain(name: "example.com", port: 443),
+                    tlsConfiguration: nil,
+                    serverNameIndicatorOverride: nil
+                )
+            )
+            XCTAssertEqual(
+                preparedRequest.head,
+                .init(
+                    version: .http1_1,
+                    method: .GET,
+                    uri: "/get",
+                    headers: [
+                        "host": "example.com",
+                        "custom-header": "custom-header-value",
+                    ]
+                )
+            )
+            XCTAssertEqual(
+                preparedRequest.requestFramingMetadata,
+                .init(
+                    connectionClose: false,
+                    body: .fixedSize(0)
+                )
+            )
             guard let buffer = await XCTAssertNoThrowWithResult(try await preparedRequest.body.read()) else { return }
             XCTAssertEqual(buffer, ByteBuffer())
         }
@@ -76,22 +87,31 @@ class HTTPClientRequestTests: XCTestCase {
             XCTAssertNoThrow(preparedRequest = try PreparedRequest(request))
             guard let preparedRequest = preparedRequest else { return }
 
-            XCTAssertEqual(preparedRequest.poolKey, .init(
-                scheme: .unix,
-                connectionTarget: .unixSocket(path: "/some_path"),
-                tlsConfiguration: nil,
-                serverNameIndicatorOverride: nil
-            ))
-            XCTAssertEqual(preparedRequest.head, .init(
-                version: .http1_1,
-                method: .GET,
-                uri: "/",
-                headers: ["custom-header": "custom-value"]
-            ))
-            XCTAssertEqual(preparedRequest.requestFramingMetadata, .init(
-                connectionClose: false,
-                body: .fixedSize(0)
-            ))
+            XCTAssertEqual(
+                preparedRequest.poolKey,
+                .init(
+                    scheme: .unix,
+                    connectionTarget: .unixSocket(path: "/some_path"),
+                    tlsConfiguration: nil,
+                    serverNameIndicatorOverride: nil
+                )
+            )
+            XCTAssertEqual(
+                preparedRequest.head,
+                .init(
+                    version: .http1_1,
+                    method: .GET,
+                    uri: "/",
+                    headers: ["custom-header": "custom-value"]
+                )
+            )
+            XCTAssertEqual(
+                preparedRequest.requestFramingMetadata,
+                .init(
+                    connectionClose: false,
+                    body: .fixedSize(0)
+                )
+            )
             guard let buffer = await XCTAssertNoThrowWithResult(try await preparedRequest.body.read()) else { return }
             XCTAssertEqual(buffer, ByteBuffer())
         }
@@ -105,22 +125,31 @@ class HTTPClientRequestTests: XCTestCase {
             XCTAssertNoThrow(preparedRequest = try PreparedRequest(request))
             guard let preparedRequest = preparedRequest else { return }
 
-            XCTAssertEqual(preparedRequest.poolKey, .init(
-                scheme: .httpUnix,
-                connectionTarget: .unixSocket(path: "/example/folder.sock"),
-                tlsConfiguration: nil,
-                serverNameIndicatorOverride: nil
-            ))
-            XCTAssertEqual(preparedRequest.head, .init(
-                version: .http1_1,
-                method: .GET,
-                uri: "/some_path",
-                headers: ["custom-header": "custom-value"]
-            ))
-            XCTAssertEqual(preparedRequest.requestFramingMetadata, .init(
-                connectionClose: false,
-                body: .fixedSize(0)
-            ))
+            XCTAssertEqual(
+                preparedRequest.poolKey,
+                .init(
+                    scheme: .httpUnix,
+                    connectionTarget: .unixSocket(path: "/example/folder.sock"),
+                    tlsConfiguration: nil,
+                    serverNameIndicatorOverride: nil
+                )
+            )
+            XCTAssertEqual(
+                preparedRequest.head,
+                .init(
+                    version: .http1_1,
+                    method: .GET,
+                    uri: "/some_path",
+                    headers: ["custom-header": "custom-value"]
+                )
+            )
+            XCTAssertEqual(
+                preparedRequest.requestFramingMetadata,
+                .init(
+                    connectionClose: false,
+                    body: .fixedSize(0)
+                )
+            )
             guard let buffer = await XCTAssertNoThrowWithResult(try await preparedRequest.body.read()) else { return }
             XCTAssertEqual(buffer, ByteBuffer())
         }
@@ -134,22 +163,31 @@ class HTTPClientRequestTests: XCTestCase {
             XCTAssertNoThrow(preparedRequest = try PreparedRequest(request))
             guard let preparedRequest = preparedRequest else { return }
 
-            XCTAssertEqual(preparedRequest.poolKey, .init(
-                scheme: .httpsUnix,
-                connectionTarget: .unixSocket(path: "/example/folder.sock"),
-                tlsConfiguration: nil,
-                serverNameIndicatorOverride: nil
-            ))
-            XCTAssertEqual(preparedRequest.head, .init(
-                version: .http1_1,
-                method: .GET,
-                uri: "/some_path",
-                headers: ["custom-header": "custom-value"]
-            ))
-            XCTAssertEqual(preparedRequest.requestFramingMetadata, .init(
-                connectionClose: false,
-                body: .fixedSize(0)
-            ))
+            XCTAssertEqual(
+                preparedRequest.poolKey,
+                .init(
+                    scheme: .httpsUnix,
+                    connectionTarget: .unixSocket(path: "/example/folder.sock"),
+                    tlsConfiguration: nil,
+                    serverNameIndicatorOverride: nil
+                )
+            )
+            XCTAssertEqual(
+                preparedRequest.head,
+                .init(
+                    version: .http1_1,
+                    method: .GET,
+                    uri: "/some_path",
+                    headers: ["custom-header": "custom-value"]
+                )
+            )
+            XCTAssertEqual(
+                preparedRequest.requestFramingMetadata,
+                .init(
+                    connectionClose: false,
+                    body: .fixedSize(0)
+                )
+            )
             guard let buffer = await XCTAssertNoThrowWithResult(try await preparedRequest.body.read()) else { return }
             XCTAssertEqual(buffer, ByteBuffer())
         }
@@ -162,22 +200,31 @@ class HTTPClientRequestTests: XCTestCase {
             XCTAssertNoThrow(preparedRequest = try PreparedRequest(request))
             guard let preparedRequest = preparedRequest else { return }
 
-            XCTAssertEqual(preparedRequest.poolKey, .init(
-                scheme: .https,
-                connectionTarget: .domain(name: "example.com", port: 443),
-                tlsConfiguration: nil,
-                serverNameIndicatorOverride: nil
-            ))
-            XCTAssertEqual(preparedRequest.head, .init(
-                version: .http1_1,
-                method: .GET,
-                uri: "/get",
-                headers: ["host": "example.com"]
-            ))
-            XCTAssertEqual(preparedRequest.requestFramingMetadata, .init(
-                connectionClose: false,
-                body: .fixedSize(0)
-            ))
+            XCTAssertEqual(
+                preparedRequest.poolKey,
+                .init(
+                    scheme: .https,
+                    connectionTarget: .domain(name: "example.com", port: 443),
+                    tlsConfiguration: nil,
+                    serverNameIndicatorOverride: nil
+                )
+            )
+            XCTAssertEqual(
+                preparedRequest.head,
+                .init(
+                    version: .http1_1,
+                    method: .GET,
+                    uri: "/get",
+                    headers: ["host": "example.com"]
+                )
+            )
+            XCTAssertEqual(
+                preparedRequest.requestFramingMetadata,
+                .init(
+                    connectionClose: false,
+                    body: .fixedSize(0)
+                )
+            )
             guard let buffer = await XCTAssertNoThrowWithResult(try await preparedRequest.body.read()) else { return }
             XCTAssertEqual(buffer, ByteBuffer())
         }
@@ -191,25 +238,34 @@ class HTTPClientRequestTests: XCTestCase {
             XCTAssertNoThrow(preparedRequest = try PreparedRequest(request))
             guard let preparedRequest = preparedRequest else { return }
 
-            XCTAssertEqual(preparedRequest.poolKey, .init(
-                scheme: .http,
-                connectionTarget: .domain(name: "example.com", port: 80),
-                tlsConfiguration: nil,
-                serverNameIndicatorOverride: nil
-            ))
-            XCTAssertEqual(preparedRequest.head, .init(
-                version: .http1_1,
-                method: .POST,
-                uri: "/post",
-                headers: [
-                    "host": "example.com",
-                    "content-length": "0",
-                ]
-            ))
-            XCTAssertEqual(preparedRequest.requestFramingMetadata, .init(
-                connectionClose: false,
-                body: .fixedSize(0)
-            ))
+            XCTAssertEqual(
+                preparedRequest.poolKey,
+                .init(
+                    scheme: .http,
+                    connectionTarget: .domain(name: "example.com", port: 80),
+                    tlsConfiguration: nil,
+                    serverNameIndicatorOverride: nil
+                )
+            )
+            XCTAssertEqual(
+                preparedRequest.head,
+                .init(
+                    version: .http1_1,
+                    method: .POST,
+                    uri: "/post",
+                    headers: [
+                        "host": "example.com",
+                        "content-length": "0",
+                    ]
+                )
+            )
+            XCTAssertEqual(
+                preparedRequest.requestFramingMetadata,
+                .init(
+                    connectionClose: false,
+                    body: .fixedSize(0)
+                )
+            )
 
             guard let buffer = await XCTAssertNoThrowWithResult(try await preparedRequest.body.read()) else { return }
             XCTAssertEqual(buffer, ByteBuffer())
@@ -225,25 +281,34 @@ class HTTPClientRequestTests: XCTestCase {
             XCTAssertNoThrow(preparedRequest = try PreparedRequest(request))
             guard let preparedRequest = preparedRequest else { return }
 
-            XCTAssertEqual(preparedRequest.poolKey, .init(
-                scheme: .http,
-                connectionTarget: .domain(name: "example.com", port: 80),
-                tlsConfiguration: nil,
-                serverNameIndicatorOverride: nil
-            ))
-            XCTAssertEqual(preparedRequest.head, .init(
-                version: .http1_1,
-                method: .POST,
-                uri: "/post",
-                headers: [
-                    "host": "example.com",
-                    "content-length": "0",
-                ]
-            ))
-            XCTAssertEqual(preparedRequest.requestFramingMetadata, .init(
-                connectionClose: false,
-                body: .fixedSize(0)
-            ))
+            XCTAssertEqual(
+                preparedRequest.poolKey,
+                .init(
+                    scheme: .http,
+                    connectionTarget: .domain(name: "example.com", port: 80),
+                    tlsConfiguration: nil,
+                    serverNameIndicatorOverride: nil
+                )
+            )
+            XCTAssertEqual(
+                preparedRequest.head,
+                .init(
+                    version: .http1_1,
+                    method: .POST,
+                    uri: "/post",
+                    headers: [
+                        "host": "example.com",
+                        "content-length": "0",
+                    ]
+                )
+            )
+            XCTAssertEqual(
+                preparedRequest.requestFramingMetadata,
+                .init(
+                    connectionClose: false,
+                    body: .fixedSize(0)
+                )
+            )
 
             guard let buffer = await XCTAssertNoThrowWithResult(try await preparedRequest.body.read()) else { return }
             XCTAssertEqual(buffer, ByteBuffer())
@@ -259,25 +324,34 @@ class HTTPClientRequestTests: XCTestCase {
             XCTAssertNoThrow(preparedRequest = try PreparedRequest(request))
             guard let preparedRequest = preparedRequest else { return }
 
-            XCTAssertEqual(preparedRequest.poolKey, .init(
-                scheme: .http,
-                connectionTarget: .domain(name: "example.com", port: 80),
-                tlsConfiguration: nil,
-                serverNameIndicatorOverride: nil
-            ))
-            XCTAssertEqual(preparedRequest.head, .init(
-                version: .http1_1,
-                method: .POST,
-                uri: "/post",
-                headers: [
-                    "host": "example.com",
-                    "content-length": "9",
-                ]
-            ))
-            XCTAssertEqual(preparedRequest.requestFramingMetadata, .init(
-                connectionClose: false,
-                body: .fixedSize(9)
-            ))
+            XCTAssertEqual(
+                preparedRequest.poolKey,
+                .init(
+                    scheme: .http,
+                    connectionTarget: .domain(name: "example.com", port: 80),
+                    tlsConfiguration: nil,
+                    serverNameIndicatorOverride: nil
+                )
+            )
+            XCTAssertEqual(
+                preparedRequest.head,
+                .init(
+                    version: .http1_1,
+                    method: .POST,
+                    uri: "/post",
+                    headers: [
+                        "host": "example.com",
+                        "content-length": "9",
+                    ]
+                )
+            )
+            XCTAssertEqual(
+                preparedRequest.requestFramingMetadata,
+                .init(
+                    connectionClose: false,
+                    body: .fixedSize(9)
+                )
+            )
             guard let buffer = await XCTAssertNoThrowWithResult(try await preparedRequest.body.read()) else { return }
             XCTAssertEqual(buffer, .init(string: "post body"))
         }
@@ -293,25 +367,34 @@ class HTTPClientRequestTests: XCTestCase {
             XCTAssertNoThrow(preparedRequest = try PreparedRequest(request))
             guard let preparedRequest = preparedRequest else { return }
 
-            XCTAssertEqual(preparedRequest.poolKey, .init(
-                scheme: .http,
-                connectionTarget: .domain(name: "example.com", port: 80),
-                tlsConfiguration: nil,
-                serverNameIndicatorOverride: nil
-            ))
-            XCTAssertEqual(preparedRequest.head, .init(
-                version: .http1_1,
-                method: .POST,
-                uri: "/post",
-                headers: [
-                    "host": "example.com",
-                    "transfer-encoding": "chunked",
-                ]
-            ))
-            XCTAssertEqual(preparedRequest.requestFramingMetadata, .init(
-                connectionClose: false,
-                body: .stream
-            ))
+            XCTAssertEqual(
+                preparedRequest.poolKey,
+                .init(
+                    scheme: .http,
+                    connectionTarget: .domain(name: "example.com", port: 80),
+                    tlsConfiguration: nil,
+                    serverNameIndicatorOverride: nil
+                )
+            )
+            XCTAssertEqual(
+                preparedRequest.head,
+                .init(
+                    version: .http1_1,
+                    method: .POST,
+                    uri: "/post",
+                    headers: [
+                        "host": "example.com",
+                        "transfer-encoding": "chunked",
+                    ]
+                )
+            )
+            XCTAssertEqual(
+                preparedRequest.requestFramingMetadata,
+                .init(
+                    connectionClose: false,
+                    body: .stream
+                )
+            )
             guard let buffer = await XCTAssertNoThrowWithResult(try await preparedRequest.body.read()) else { return }
             XCTAssertEqual(buffer, .init(string: "post body"))
         }
@@ -328,25 +411,34 @@ class HTTPClientRequestTests: XCTestCase {
             XCTAssertNoThrow(preparedRequest = try PreparedRequest(request))
             guard let preparedRequest = preparedRequest else { return }
 
-            XCTAssertEqual(preparedRequest.poolKey, .init(
-                scheme: .http,
-                connectionTarget: .domain(name: "example.com", port: 80),
-                tlsConfiguration: nil,
-                serverNameIndicatorOverride: nil
-            ))
-            XCTAssertEqual(preparedRequest.head, .init(
-                version: .http1_1,
-                method: .POST,
-                uri: "/post",
-                headers: [
-                    "host": "example.com",
-                    "content-length": "9",
-                ]
-            ))
-            XCTAssertEqual(preparedRequest.requestFramingMetadata, .init(
-                connectionClose: false,
-                body: .fixedSize(9)
-            ))
+            XCTAssertEqual(
+                preparedRequest.poolKey,
+                .init(
+                    scheme: .http,
+                    connectionTarget: .domain(name: "example.com", port: 80),
+                    tlsConfiguration: nil,
+                    serverNameIndicatorOverride: nil
+                )
+            )
+            XCTAssertEqual(
+                preparedRequest.head,
+                .init(
+                    version: .http1_1,
+                    method: .POST,
+                    uri: "/post",
+                    headers: [
+                        "host": "example.com",
+                        "content-length": "9",
+                    ]
+                )
+            )
+            XCTAssertEqual(
+                preparedRequest.requestFramingMetadata,
+                .init(
+                    connectionClose: false,
+                    body: .fixedSize(9)
+                )
+            )
             guard let buffer = await XCTAssertNoThrowWithResult(try await preparedRequest.body.read()) else { return }
             XCTAssertEqual(buffer, .init(string: "post body"))
         }
@@ -362,25 +454,34 @@ class HTTPClientRequestTests: XCTestCase {
             XCTAssertNoThrow(preparedRequest = try PreparedRequest(request))
             guard let preparedRequest = preparedRequest else { return }
 
-            XCTAssertEqual(preparedRequest.poolKey, .init(
-                scheme: .http,
-                connectionTarget: .domain(name: "example.com", port: 80),
-                tlsConfiguration: nil,
-                serverNameIndicatorOverride: nil
-            ))
-            XCTAssertEqual(preparedRequest.head, .init(
-                version: .http1_1,
-                method: .POST,
-                uri: "/post",
-                headers: [
-                    "host": "example.com",
-                    "content-length": "9",
-                ]
-            ))
-            XCTAssertEqual(preparedRequest.requestFramingMetadata, .init(
-                connectionClose: false,
-                body: .fixedSize(9)
-            ))
+            XCTAssertEqual(
+                preparedRequest.poolKey,
+                .init(
+                    scheme: .http,
+                    connectionTarget: .domain(name: "example.com", port: 80),
+                    tlsConfiguration: nil,
+                    serverNameIndicatorOverride: nil
+                )
+            )
+            XCTAssertEqual(
+                preparedRequest.head,
+                .init(
+                    version: .http1_1,
+                    method: .POST,
+                    uri: "/post",
+                    headers: [
+                        "host": "example.com",
+                        "content-length": "9",
+                    ]
+                )
+            )
+            XCTAssertEqual(
+                preparedRequest.requestFramingMetadata,
+                .init(
+                    connectionClose: false,
+                    body: .fixedSize(9)
+                )
+            )
             guard let buffer = await XCTAssertNoThrowWithResult(try await preparedRequest.body.read()) else { return }
             XCTAssertEqual(buffer, .init(string: "post body"))
         }
@@ -401,25 +502,34 @@ class HTTPClientRequestTests: XCTestCase {
             XCTAssertNoThrow(preparedRequest = try PreparedRequest(request))
             guard let preparedRequest = preparedRequest else { return }
 
-            XCTAssertEqual(preparedRequest.poolKey, .init(
-                scheme: .http,
-                connectionTarget: .domain(name: "example.com", port: 80),
-                tlsConfiguration: nil,
-                serverNameIndicatorOverride: nil
-            ))
-            XCTAssertEqual(preparedRequest.head, .init(
-                version: .http1_1,
-                method: .POST,
-                uri: "/post",
-                headers: [
-                    "host": "example.com",
-                    "transfer-encoding": "chunked",
-                ]
-            ))
-            XCTAssertEqual(preparedRequest.requestFramingMetadata, .init(
-                connectionClose: false,
-                body: .stream
-            ))
+            XCTAssertEqual(
+                preparedRequest.poolKey,
+                .init(
+                    scheme: .http,
+                    connectionTarget: .domain(name: "example.com", port: 80),
+                    tlsConfiguration: nil,
+                    serverNameIndicatorOverride: nil
+                )
+            )
+            XCTAssertEqual(
+                preparedRequest.head,
+                .init(
+                    version: .http1_1,
+                    method: .POST,
+                    uri: "/post",
+                    headers: [
+                        "host": "example.com",
+                        "transfer-encoding": "chunked",
+                    ]
+                )
+            )
+            XCTAssertEqual(
+                preparedRequest.requestFramingMetadata,
+                .init(
+                    connectionClose: false,
+                    body: .stream
+                )
+            )
             guard let buffer = await XCTAssertNoThrowWithResult(try await preparedRequest.body.read()) else { return }
             XCTAssertEqual(buffer, .init(string: "post body"))
         }
@@ -440,25 +550,34 @@ class HTTPClientRequestTests: XCTestCase {
             XCTAssertNoThrow(preparedRequest = try PreparedRequest(request))
             guard let preparedRequest = preparedRequest else { return }
 
-            XCTAssertEqual(preparedRequest.poolKey, .init(
-                scheme: .http,
-                connectionTarget: .domain(name: "example.com", port: 80),
-                tlsConfiguration: nil,
-                serverNameIndicatorOverride: nil
-            ))
-            XCTAssertEqual(preparedRequest.head, .init(
-                version: .http1_1,
-                method: .POST,
-                uri: "/post",
-                headers: [
-                    "host": "example.com",
-                    "content-length": "9",
-                ]
-            ))
-            XCTAssertEqual(preparedRequest.requestFramingMetadata, .init(
-                connectionClose: false,
-                body: .fixedSize(9)
-            ))
+            XCTAssertEqual(
+                preparedRequest.poolKey,
+                .init(
+                    scheme: .http,
+                    connectionTarget: .domain(name: "example.com", port: 80),
+                    tlsConfiguration: nil,
+                    serverNameIndicatorOverride: nil
+                )
+            )
+            XCTAssertEqual(
+                preparedRequest.head,
+                .init(
+                    version: .http1_1,
+                    method: .POST,
+                    uri: "/post",
+                    headers: [
+                        "host": "example.com",
+                        "content-length": "9",
+                    ]
+                )
+            )
+            XCTAssertEqual(
+                preparedRequest.requestFramingMetadata,
+                .init(
+                    connectionClose: false,
+                    body: .fixedSize(9)
+                )
+            )
             guard let buffer = await XCTAssertNoThrowWithResult(try await preparedRequest.body.read()) else { return }
             XCTAssertEqual(buffer, .init(string: "post body"))
         }
@@ -466,9 +585,9 @@ class HTTPClientRequestTests: XCTestCase {
 
     func testChunkingRandomAccessCollection() async throws {
         let body = try await HTTPClientRequest.Body.bytes(
-            Array(repeating: 0, count: bagOfBytesToByteBufferConversionChunkSize) +
-                Array(repeating: 1, count: bagOfBytesToByteBufferConversionChunkSize) +
-                Array(repeating: 2, count: bagOfBytesToByteBufferConversionChunkSize)
+            Array(repeating: 0, count: bagOfBytesToByteBufferConversionChunkSize)
+                + Array(repeating: 1, count: bagOfBytesToByteBufferConversionChunkSize)
+                + Array(repeating: 2, count: bagOfBytesToByteBufferConversionChunkSize)
         ).collect()
 
         let expectedChunks = [
@@ -482,11 +601,9 @@ class HTTPClientRequestTests: XCTestCase {
 
     func testChunkingCollection() async throws {
         let body = try await HTTPClientRequest.Body.bytes(
-            (
-                String(repeating: "0", count: bagOfBytesToByteBufferConversionChunkSize) +
-                    String(repeating: "1", count: bagOfBytesToByteBufferConversionChunkSize) +
-                    String(repeating: "2", count: bagOfBytesToByteBufferConversionChunkSize)
-            ).utf8,
+            (String(repeating: "0", count: bagOfBytesToByteBufferConversionChunkSize)
+                + String(repeating: "1", count: bagOfBytesToByteBufferConversionChunkSize)
+                + String(repeating: "2", count: bagOfBytesToByteBufferConversionChunkSize)).utf8,
             length: .known(Int64(bagOfBytesToByteBufferConversionChunkSize * 3))
         ).collect()
 
@@ -503,8 +620,8 @@ class HTTPClientRequestTests: XCTestCase {
         let bagOfBytesToByteBufferConversionChunkSize = 8
         let body = try await HTTPClientRequest.Body._bytes(
             AnySequence(
-                Array(repeating: 0, count: bagOfBytesToByteBufferConversionChunkSize) +
-                    Array(repeating: 1, count: bagOfBytesToByteBufferConversionChunkSize)
+                Array(repeating: 0, count: bagOfBytesToByteBufferConversionChunkSize)
+                    + Array(repeating: 1, count: bagOfBytesToByteBufferConversionChunkSize)
             ),
             length: .known(Int64(bagOfBytesToByteBufferConversionChunkSize * 3)),
             bagOfBytesToByteBufferConversionChunkSize: bagOfBytesToByteBufferConversionChunkSize,
@@ -521,9 +638,9 @@ class HTTPClientRequestTests: XCTestCase {
 
     func testChunkingSequenceFastPath() async throws {
         func makeBytes() -> some Sequence<UInt8> & Sendable {
-            Array(repeating: 0, count: bagOfBytesToByteBufferConversionChunkSize) +
-                Array(repeating: 1, count: bagOfBytesToByteBufferConversionChunkSize) +
-                Array(repeating: 2, count: bagOfBytesToByteBufferConversionChunkSize)
+            Array(repeating: 0, count: bagOfBytesToByteBufferConversionChunkSize)
+                + Array(repeating: 1, count: bagOfBytesToByteBufferConversionChunkSize)
+                + Array(repeating: 2, count: bagOfBytesToByteBufferConversionChunkSize)
         }
         let body = try await HTTPClientRequest.Body.bytes(
             makeBytes(),
@@ -534,7 +651,7 @@ class HTTPClientRequestTests: XCTestCase {
         firstChunk.writeImmutableBuffer(ByteBuffer(repeating: 1, count: bagOfBytesToByteBufferConversionChunkSize))
         firstChunk.writeImmutableBuffer(ByteBuffer(repeating: 2, count: bagOfBytesToByteBufferConversionChunkSize))
         let expectedChunks = [
-            firstChunk,
+            firstChunk
         ]
 
         XCTAssertEqual(body, expectedChunks)
@@ -544,9 +661,9 @@ class HTTPClientRequestTests: XCTestCase {
         let bagOfBytesToByteBufferConversionChunkSize = 8
         let byteBufferMaxSize = 16
         func makeBytes() -> some Sequence<UInt8> & Sendable {
-            Array(repeating: 0, count: bagOfBytesToByteBufferConversionChunkSize) +
-                Array(repeating: 1, count: bagOfBytesToByteBufferConversionChunkSize) +
-                Array(repeating: 2, count: bagOfBytesToByteBufferConversionChunkSize)
+            Array(repeating: 0, count: bagOfBytesToByteBufferConversionChunkSize)
+                + Array(repeating: 1, count: bagOfBytesToByteBufferConversionChunkSize)
+                + Array(repeating: 2, count: bagOfBytesToByteBufferConversionChunkSize)
         }
         let body = try await HTTPClientRequest.Body._bytes(
             makeBytes(),
@@ -568,12 +685,13 @@ class HTTPClientRequestTests: XCTestCase {
 
     func testBodyStringChunking() throws {
         let body = try HTTPClient.Body.string(
-            String(repeating: "0", count: bagOfBytesToByteBufferConversionChunkSize) +
-                String(repeating: "1", count: bagOfBytesToByteBufferConversionChunkSize) +
-                String(repeating: "2", count: bagOfBytesToByteBufferConversionChunkSize)
+            String(repeating: "0", count: bagOfBytesToByteBufferConversionChunkSize)
+                + String(repeating: "1", count: bagOfBytesToByteBufferConversionChunkSize)
+                + String(repeating: "2", count: bagOfBytesToByteBufferConversionChunkSize)
         ).collect().wait()
 
         let expectedChunks = [
+            ByteBuffer(),  // We're currently emitting an empty chunk first.
             ByteBuffer(repeating: UInt8(ascii: "0"), count: bagOfBytesToByteBufferConversionChunkSize),
             ByteBuffer(repeating: UInt8(ascii: "1"), count: bagOfBytesToByteBufferConversionChunkSize),
             ByteBuffer(repeating: UInt8(ascii: "2"), count: bagOfBytesToByteBufferConversionChunkSize),
@@ -584,12 +702,13 @@ class HTTPClientRequestTests: XCTestCase {
 
     func testBodyChunkingRandomAccessCollection() throws {
         let body = try HTTPClient.Body.bytes(
-            Array(repeating: 0, count: bagOfBytesToByteBufferConversionChunkSize) +
-                Array(repeating: 1, count: bagOfBytesToByteBufferConversionChunkSize) +
-                Array(repeating: 2, count: bagOfBytesToByteBufferConversionChunkSize)
+            Array(repeating: 0, count: bagOfBytesToByteBufferConversionChunkSize)
+                + Array(repeating: 1, count: bagOfBytesToByteBufferConversionChunkSize)
+                + Array(repeating: 2, count: bagOfBytesToByteBufferConversionChunkSize)
         ).collect().wait()
 
         let expectedChunks = [
+            ByteBuffer(),  // We're currently emitting an empty chunk first.
             ByteBuffer(repeating: 0, count: bagOfBytesToByteBufferConversionChunkSize),
             ByteBuffer(repeating: 1, count: bagOfBytesToByteBufferConversionChunkSize),
             ByteBuffer(repeating: 2, count: bagOfBytesToByteBufferConversionChunkSize),
@@ -642,7 +761,8 @@ extension Optional where Wrapped == HTTPClientRequest.Prepared.Body {
         case .sequence(let announcedLength, _, let generate):
             let buffer = generate(ByteBufferAllocator())
             if case .known(let announcedLength) = announcedLength,
-               announcedLength != Int64(buffer.readableBytes) {
+                announcedLength != Int64(buffer.readableBytes)
+            {
                 throw LengthMismatch(announcedLength: announcedLength, actualLength: Int64(buffer.readableBytes))
             }
             return buffer
@@ -652,8 +772,12 @@ extension Optional where Wrapped == HTTPClientRequest.Prepared.Body {
                 accumulatedBuffer.writeBuffer(&buffer)
             }
             if case .known(let announcedLength) = announcedLength,
-               announcedLength != Int64(accumulatedBuffer.readableBytes) {
-                throw LengthMismatch(announcedLength: announcedLength, actualLength: Int64(accumulatedBuffer.readableBytes))
+                announcedLength != Int64(accumulatedBuffer.readableBytes)
+            {
+                throw LengthMismatch(
+                    announcedLength: announcedLength,
+                    actualLength: Int64(accumulatedBuffer.readableBytes)
+                )
             }
             return accumulatedBuffer
         }

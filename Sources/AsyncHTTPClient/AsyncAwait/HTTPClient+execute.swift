@@ -12,10 +12,11 @@
 //
 //===----------------------------------------------------------------------===//
 
-import struct Foundation.URL
 import Logging
 import NIOCore
 import NIOHTTP1
+
+import struct Foundation.URL
 
 @available(macOS 10.15, iOS 13.0, watchOS 6.0, tvOS 13.0, *)
 extension HTTPClient {
@@ -25,6 +26,10 @@ extension HTTPClient {
     ///   - request: HTTP request to execute.
     ///   - deadline: Point in time by which the request must complete.
     ///   - logger: The logger to use for this request.
+    ///
+    /// - warning: This method may violates Structured Concurrency because it returns a `HTTPClientResponse` that needs to be
+    ///            streamed by the user. This means the request, the connection and other resources are still alive when the request returns.
+    ///
     /// - Returns: The response to the request. Note that the `body` of the response may not yet have been fully received.
     public func execute(
         _ request: HTTPClientRequest,
@@ -50,6 +55,10 @@ extension HTTPClient {
     ///   - request: HTTP request to execute.
     ///   - timeout: time the the request has to complete.
     ///   - logger: The logger to use for this request.
+    ///
+    /// - warning: This method may violates Structured Concurrency because it returns a `HTTPClientResponse` that needs to be
+    ///            streamed by the user. This means the request, the connection and other resources are still alive when the request returns.
+    ///
     /// - Returns: The response to the request. Note that the `body` of the response may not yet have been fully received.
     public func execute(
         _ request: HTTPClientRequest,
@@ -66,6 +75,8 @@ extension HTTPClient {
 
 @available(macOS 10.15, iOS 13.0, watchOS 6.0, tvOS 13.0, *)
 extension HTTPClient {
+    /// - warning: This method may violates Structured Concurrency because it returns a `HTTPClientResponse` that needs to be
+    ///            streamed by the user. This means the request, the connection and other resources are still alive when the request returns.
     private func executeAndFollowRedirectsIfNeeded(
         _ request: HTTPClientRequest,
         deadline: NIODeadline,
@@ -85,11 +96,13 @@ extension HTTPClient {
                 return response
             }
 
-            guard let redirectURL = response.headers.extractRedirectTarget(
-                status: response.status,
-                originalURL: preparedRequest.url,
-                originalScheme: preparedRequest.poolKey.scheme
-            ) else {
+            guard
+                let redirectURL = response.headers.extractRedirectTarget(
+                    status: response.status,
+                    originalURL: preparedRequest.url,
+                    originalScheme: preparedRequest.poolKey.scheme
+                )
+            else {
                 // response does not want a redirect
                 return response
             }
@@ -113,6 +126,8 @@ extension HTTPClient {
         }
     }
 
+    /// - warning: This method may violates Structured Concurrency because it returns a `HTTPClientResponse` that needs to be
+    ///            streamed by the user. This means the request, the connection and other resources are still alive when the request returns.
     private func executeCancellable(
         _ request: HTTPClientRequest.Prepared,
         deadline: NIODeadline,
@@ -120,31 +135,35 @@ extension HTTPClient {
     ) async throws -> HTTPClientResponse {
         let cancelHandler = TransactionCancelHandler()
 
-        return try await withTaskCancellationHandler(operation: { () async throws -> HTTPClientResponse in
-            let eventLoop = self.eventLoopGroup.any()
-            let deadlineTask = eventLoop.scheduleTask(deadline: deadline) {
-                cancelHandler.cancel(reason: .deadlineExceeded)
-            }
-            defer {
-                deadlineTask.cancel()
-            }
-            return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<HTTPClientResponse, Swift.Error>) -> Void in
-                let transaction = Transaction(
-                    request: request,
-                    requestOptions: .fromClientConfiguration(self.configuration),
-                    logger: logger,
-                    connectionDeadline: .now() + (self.configuration.timeout.connectionCreationTimeout),
-                    preferredEventLoop: eventLoop,
-                    responseContinuation: continuation
-                )
+        return try await withTaskCancellationHandler(
+            operation: { () async throws -> HTTPClientResponse in
+                let eventLoop = self.eventLoopGroup.any()
+                let deadlineTask = eventLoop.scheduleTask(deadline: deadline) {
+                    cancelHandler.cancel(reason: .deadlineExceeded)
+                }
+                defer {
+                    deadlineTask.cancel()
+                }
+                return try await withCheckedThrowingContinuation {
+                    (continuation: CheckedContinuation<HTTPClientResponse, Swift.Error>) -> Void in
+                    let transaction = Transaction(
+                        request: request,
+                        requestOptions: .fromClientConfiguration(self.configuration),
+                        logger: logger,
+                        connectionDeadline: .now() + (self.configuration.timeout.connectionCreationTimeout),
+                        preferredEventLoop: eventLoop,
+                        responseContinuation: continuation
+                    )
 
-                cancelHandler.registerTransaction(transaction)
+                    cancelHandler.registerTransaction(transaction)
 
-                self.poolManager.executeRequest(transaction)
+                    self.poolManager.executeRequest(transaction)
+                }
+            },
+            onCancel: {
+                cancelHandler.cancel(reason: .taskCanceled)
             }
-        }, onCancel: {
-            cancelHandler.cancel(reason: .taskCanceled)
-        })
+        )
     }
 }
 
