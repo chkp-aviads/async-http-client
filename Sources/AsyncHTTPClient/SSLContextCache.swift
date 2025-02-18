@@ -25,6 +25,12 @@ final class SSLContextCache {
 }
 
 extension SSLContextCache {
+    func clearCache() {
+        self.lock.withLock {
+            sslContextCache.removeAll()
+        }
+    }
+    
     func sslContext(
         tlsConfiguration: TLSConfiguration,
         eventLoop: EventLoop,
