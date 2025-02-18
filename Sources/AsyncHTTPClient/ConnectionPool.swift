@@ -12,6 +12,8 @@
 //
 //===----------------------------------------------------------------------===//
 
+import CNIOLinux
+import NIOCore
 import NIOSSL
 
 #if canImport(Darwin)
@@ -29,8 +31,7 @@ extension String {
         var ipv4Address = in_addr()
         var ipv6Address = in6_addr()
         return self.withCString { host in
-            inet_pton(AF_INET, host, &ipv4Address) == 1 ||
-                inet_pton(AF_INET6, host, &ipv6Address) == 1
+            inet_pton(AF_INET, host, &ipv4Address) == 1 || inet_pton(AF_INET6, host, &ipv6Address) == 1
         }
     }
 }
@@ -67,12 +68,13 @@ enum ConnectionPool {
             switch self.connectionTarget {
             case .ipAddress(let serialization, let addr):
                 hostDescription = "\(serialization):\(addr.port!)"
-            case .domain(let domain, port: let port):
+            case .domain(let domain, let port):
                 hostDescription = "\(domain):\(port)"
             case .unixSocket(let socketPath):
                 hostDescription = socketPath
             }
-            return "\(self.scheme)://\(hostDescription)\(self.serverNameIndicatorOverride.map { " SNI: \($0)" } ?? "") TLS-hash: \(hash) "
+            return
+                "\(self.scheme)://\(hostDescription)\(self.serverNameIndicatorOverride.map { " SNI: \($0)" } ?? "") TLS-hash: \(hash) "
         }
     }
 }

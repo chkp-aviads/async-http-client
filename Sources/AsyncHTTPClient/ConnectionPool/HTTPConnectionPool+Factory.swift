@@ -20,6 +20,7 @@ import NIOPosix
 import NIOSOCKS
 import NIOSSL
 import NIOTLS
+
 #if canImport(Network)
 import NIOTransportServices
 #endif
@@ -31,14 +32,17 @@ extension HTTPConnectionPool {
         let tlsConfiguration: TLSConfiguration
         let sslContextCache: SSLContextCache
 
-        init(key: ConnectionPool.Key,
-             tlsConfiguration: TLSConfiguration?,
-             clientConfiguration: HTTPClient.Configuration,
-             sslContextCache: SSLContextCache) {
+        init(
+            key: ConnectionPool.Key,
+            tlsConfiguration: TLSConfiguration?,
+            clientConfiguration: HTTPClient.Configuration,
+            sslContextCache: SSLContextCache
+        ) {
             self.key = key
             self.clientConfiguration = clientConfiguration
             self.sslContextCache = sslContextCache
-            self.tlsConfiguration = tlsConfiguration ?? clientConfiguration.tlsConfiguration ?? .makeClientConfiguration()
+            self.tlsConfiguration =
+                tlsConfiguration ?? clientConfiguration.tlsConfiguration ?? .makeClientConfiguration()
         }
     }
 }
@@ -63,7 +67,13 @@ extension HTTPConnectionPool.ConnectionFactory {
         var logger = logger
         logger[metadataKey: "ahc-connection-id"] = "\(connectionID)"
 
-        self.makeChannel(requester: requester, connectionID: connectionID, deadline: deadline, eventLoop: eventLoop, logger: logger).whenComplete { result in
+        self.makeChannel(
+            requester: requester,
+            connectionID: connectionID,
+            deadline: deadline,
+            eventLoop: eventLoop,
+            logger: logger
+        ).whenComplete { result in
             switch result {
             case .success(.http1_1(let channel)):
                 do {
@@ -137,7 +147,13 @@ extension HTTPConnectionPool.ConnectionFactory {
                 )
             }
         } else {
-            channelFuture = self.makeNonProxiedChannel(requester: requester, connectionID: connectionID, deadline: deadline, eventLoop: eventLoop, logger: logger)
+            channelFuture = self.makeNonProxiedChannel(
+                requester: requester,
+                connectionID: connectionID,
+                deadline: deadline,
+                eventLoop: eventLoop,
+                logger: logger
+            )
         }
 
         // let's map `ChannelError.connectTimeout` into a `HTTPClientError.connectTimeout`
@@ -160,10 +176,22 @@ extension HTTPConnectionPool.ConnectionFactory {
     ) -> EventLoopFuture<NegotiatedProtocol> {
         switch self.key.scheme {
         case .http, .httpUnix, .unix:
-            return self.makePlainChannel(requester: requester, connectionID: connectionID, deadline: deadline, eventLoop: eventLoop).map { .http1_1($0) }
+            return self.makePlainChannel(
+                requester: requester,
+                connectionID: connectionID,
+                deadline: deadline,
+                eventLoop: eventLoop
+            ).map { .http1_1($0) }
         case .https, .httpsUnix:
-            return self.makeTLSChannel(requester: requester, connectionID: connectionID, deadline: deadline, eventLoop: eventLoop, logger: logger).flatMapThrowing {
-                channel, negotiated in
+            return self.makeTLSChannel(
+                requester: requester,
+                connectionID: connectionID,
+                deadline: deadline,
+                eventLoop: eventLoop,
+                logger: logger
+            ).flatMapThrowing {
+                channel,
+                negotiated in
 
                 try self.matchALPNToHTTPVersion(negotiated, channel: channel)
             }
@@ -333,7 +361,9 @@ extension HTTPConnectionPool.ConnectionFactory {
                 .channelInitializer { channel in
                     do {
                         try channel.pipeline.syncOperations.addHandler(HTTPClient.NWErrorHandler())
-                        try channel.pipeline.syncOperations.addHandler(NWWaitingHandler(requester: requester, connectionID: connectionID))
+                        try channel.pipeline.syncOperations.addHandler(
+                            NWWaitingHandler(requester: requester, connectionID: connectionID)
+                        )
                         return channel.eventLoop.makeSucceededVoidFuture()
                     } catch {
                         return channel.eventLoop.makeFailedFuture(error)
@@ -389,7 +419,10 @@ extension HTTPConnectionPool.ConnectionFactory {
                     channel.pipeline.removeHandler(tlsEventHandler).map { (channel, negotiated) }
                 }
             } catch {
-                assert(channel.isActive == false, "if the channel is still active then TLSEventsHandler must be present but got error \(error)")
+                assert(
+                    channel.isActive == false,
+                    "if the channel is still active then TLSEventsHandler must be present but got error \(error)"
+                )
                 return channel.eventLoop.makeFailedFuture(HTTPClientError.remoteConnectionClosed)
             }
         }
@@ -445,7 +478,9 @@ extension HTTPConnectionPool.ConnectionFactory {
                     .channelInitializer { channel in
                         do {
                             try channel.pipeline.syncOperations.addHandler(HTTPClient.NWErrorHandler())
-                            try channel.pipeline.syncOperations.addHandler(NWWaitingHandler(requester: requester, connectionID: connectionID))
+                            try channel.pipeline.syncOperations.addHandler(
+                                NWWaitingHandler(requester: requester, connectionID: connectionID)
+                            )
                             // we don't need to set a TLS deadline for NIOTS connections, since the
                             // TLS handshake is part of the TS connection bootstrap. If the TLS
                             // handshake times out the complete connection creation will be failed.
