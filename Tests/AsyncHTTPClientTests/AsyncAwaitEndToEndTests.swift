@@ -76,6 +76,8 @@ final class AsyncAwaitEndToEndTests: XCTestCase {
                 return
             }
 
+            XCTAssertEqual(response.url?.absoluteString, request.url)
+            XCTAssertEqual(response.history.map(\.request.url), [request.url])
             XCTAssertEqual(response.status, .ok)
             XCTAssertEqual(response.version, .http2)
         }
@@ -98,6 +100,8 @@ final class AsyncAwaitEndToEndTests: XCTestCase {
                 return
             }
 
+            XCTAssertEqual(response.url?.absoluteString, request.url)
+            XCTAssertEqual(response.history.map(\.request.url), [request.url])
             XCTAssertEqual(response.status, .ok)
             XCTAssertEqual(response.version, .http2)
         }
@@ -631,33 +635,33 @@ final class AsyncAwaitEndToEndTests: XCTestCase {
 
     func testDnsOverride() {
         XCTAsyncTest(timeout: 5) {
-            /// key + cert was created with the following code (depends on swift-certificates)
-            /// ```
-            /// import X509
-            /// import CryptoKit
-            /// import Foundation
-            ///
-            /// let privateKey = P384.Signing.PrivateKey()
-            /// let name = try DistinguishedName {
-            ///     OrganizationName("Self Signed")
-            ///     CommonName("localhost")
-            /// }
-            /// let certificate = try Certificate(
-            ///     version: .v3,
-            ///     serialNumber: .init(),
-            ///     publicKey: .init(privateKey.publicKey),
-            ///     notValidBefore: Date(),
-            ///     notValidAfter: Date().advanced(by: 365 * 24 * 3600),
-            ///     issuer: name,
-            ///     subject: name,
-            ///     signatureAlgorithm: .ecdsaWithSHA384,
-            ///     extensions: try .init {
-            ///         SubjectAlternativeNames([.dnsName("example.com")])
-            ///         try ExtendedKeyUsage([.serverAuth])
-            ///     },
-            ///     issuerPrivateKey: .init(privateKey)
-            /// )
-            /// ```
+            // key + cert was created with the following code (depends on swift-certificates)
+            // ```
+            // import X509
+            // import CryptoKit
+            // import Foundation
+            //
+            // let privateKey = P384.Signing.PrivateKey()
+            // let name = try DistinguishedName {
+            //     OrganizationName("Self Signed")
+            //     CommonName("localhost")
+            // }
+            // let certificate = try Certificate(
+            //     version: .v3,
+            //     serialNumber: .init(),
+            //     publicKey: .init(privateKey.publicKey),
+            //     notValidBefore: Date(),
+            //     notValidAfter: Date().advanced(by: 365 * 24 * 3600),
+            //     issuer: name,
+            //     subject: name,
+            //     signatureAlgorithm: .ecdsaWithSHA384,
+            //     extensions: try .init {
+            //         SubjectAlternativeNames([.dnsName("example.com")])
+            //         try ExtendedKeyUsage([.serverAuth])
+            //     },
+            //     issuerPrivateKey: .init(privateKey)
+            // )
+            // ```
             let certPath = Bundle.module.path(forResource: "example.com.cert", ofType: "pem")!
             let keyPath = Bundle.module.path(forResource: "example.com.private-key", ofType: "pem")!
             let key = try NIOSSLPrivateKey(file: keyPath, format: .pem)
@@ -734,9 +738,10 @@ final class AsyncAwaitEndToEndTests: XCTestCase {
             defer { XCTAssertNoThrow(try client.syncShutdown()) }
             let logger = Logger(label: "HTTPClient", factory: StreamLogHandler.standardOutput(label:))
             var request = HTTPClientRequest(url: "https://127.0.0.1:\(bin.port)/redirect/target")
+            let redirectURL = "https://localhost:\(bin.port)/echohostheader"
             request.headers.replaceOrAdd(
                 name: "X-Target-Redirect-URL",
-                value: "https://localhost:\(bin.port)/echohostheader"
+                value: redirectURL
             )
 
             guard
@@ -753,6 +758,8 @@ final class AsyncAwaitEndToEndTests: XCTestCase {
             XCTAssertNoThrow(maybeRequestInfo = try JSONDecoder().decode(RequestInfo.self, from: body))
             guard let requestInfo = maybeRequestInfo else { return }
 
+            XCTAssertEqual(response.url?.absoluteString, redirectURL)
+            XCTAssertEqual(response.history.map(\.request.url), [request.url, redirectURL])
             XCTAssertEqual(response.status, .ok)
             XCTAssertEqual(response.version, .http2)
             XCTAssertEqual(requestInfo.data, "localhost:\(bin.port)")
