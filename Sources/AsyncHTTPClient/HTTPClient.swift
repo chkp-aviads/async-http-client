@@ -801,7 +801,7 @@ public class HTTPClient {
         public var dnsResolver : (@Sendable () -> EventLoopFuture<(Resolver & Sendable)?>)?
         
 #if canImport(Network)
-        public var requiredInterface: NWInterface?
+        public var nwParametersConfigurator: (@Sendable (NWParameters) -> Void)?
 #endif
 
         /// Enables following 3xx redirects automatically.

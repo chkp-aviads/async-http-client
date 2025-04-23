@@ -355,7 +355,7 @@ extension HTTPConnectionPool.ConnectionFactory {
         if #available(OSX 10.14, iOS 12.0, tvOS 12.0, watchOS 6.0, *),
             let tsBootstrap = NIOTSConnectionBootstrap(validatingGroup: eventLoop) {
             let bootstrap = tsBootstrap
-                .requiredInterface(clientConfiguration.requiredInterface)
+                .withNWParameters(clientConfiguration.nwParametersConfigurator)
                 .channelOption(NIOTSChannelOptions.waitForActivity, value: self.clientConfiguration.networkFrameworkWaitForConnectivity)
                 .channelOption(NIOTSChannelOptions.multipathServiceType, value: self.clientConfiguration.enableMultipath ? .handover : .disabled)
                 .connectTimeout(deadline - NIODeadline.now())
@@ -471,7 +471,7 @@ extension HTTPConnectionPool.ConnectionFactory {
                 options -> NIOClientTCPBootstrapProtocol in
 
                 tsBootstrap
-                    .requiredInterface(clientConfiguration.requiredInterface)
+                    .withNWParameters(clientConfiguration.nwParametersConfigurator)
                     .channelOption(NIOTSChannelOptions.waitForActivity, value: self.clientConfiguration.networkFrameworkWaitForConnectivity)
                     .channelOption(NIOTSChannelOptions.multipathServiceType, value: self.clientConfiguration.enableMultipath ? .handover : .disabled)
                     .connectTimeout(deadline - NIODeadline.now())
@@ -619,3 +619,17 @@ extension NIOClientTCPBootstrapProtocol {
 #endif
     }
 }
+
+#if canImport(Network)
+extension NIOTSConnectionBootstrap {
+    /// Customise the `NWParameters` to be used when creating the connection.
+    func withNWParameters(
+        _ configurator: ((@Sendable (NWParameters) -> Void)?)
+    ) -> Self {
+        if let configurator {
+            return self.configureNWParameters(configurator)
+        }
+        return self
+    }
+}
+#endif
