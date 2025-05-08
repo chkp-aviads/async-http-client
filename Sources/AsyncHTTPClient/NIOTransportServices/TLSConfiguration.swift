@@ -192,6 +192,10 @@ extension TLSConfiguration {
                     if let trustRootCertificates = secTrustRoots {
                         SecTrustSetAnchorCertificates(trust, trustRootCertificates as CFArray)
                     }
+                    
+                    // Enable network-based revocation checks
+                    SecTrustSetNetworkFetchAllowed(trust, true)
+                    
                     if #available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *) {
                         dispatchPrecondition(condition: .onQueue(Self.tlsDispatchQueue))
                         SecTrustEvaluateAsyncWithError(trust, Self.tlsDispatchQueue) { _, result, error in
