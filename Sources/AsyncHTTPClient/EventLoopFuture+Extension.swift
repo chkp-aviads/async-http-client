@@ -9,13 +9,13 @@ import NIOCore
 import NIOPosix
 
 extension EventLoopFuture {
-    static func firstSuccess<T>(of futures: [EventLoopFuture<T>], on eventLoop: EventLoop, predicate: @escaping (T) -> Bool) -> EventLoopFuture<T> {
+    static func firstSuccess<T: Sendable>(of futures: [EventLoopFuture<T>], on eventLoop: EventLoop, predicate: @escaping (T) -> Bool) -> EventLoopFuture<T> {
         let promise = eventLoop.makePromise(of: T.self)
         var success = false
         var failureCount = 0
         
         for future in futures {
-            future.hop(to: eventLoop).whenComplete { result in
+            future.hop(to: eventLoop).assumeIsolated().whenComplete { result in
                 switch result {
                 case .success(let value):
                     if !success && predicate(value) {

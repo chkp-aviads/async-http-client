@@ -1,4 +1,4 @@
-// swift-tools-version:5.8
+// swift-tools-version:5.9
 //===----------------------------------------------------------------------===//
 //
 // This source file is part of the AsyncHTTPClient open source project
@@ -15,6 +15,24 @@
 
 import PackageDescription
 
+let strictConcurrencyDevelopment = false
+
+let strictConcurrencySettings: [SwiftSetting] = {
+    var initialSettings: [SwiftSetting] = []
+    initialSettings.append(contentsOf: [
+        .enableUpcomingFeature("StrictConcurrency"),
+        .enableUpcomingFeature("InferSendableFromCaptures"),
+    ])
+
+    if strictConcurrencyDevelopment {
+        // -warnings-as-errors here is a workaround so that IDE-based development can
+        // get tripped up on -require-explicit-sendable.
+        initialSettings.append(.unsafeFlags(["-Xfrontend", "-require-explicit-sendable", "-warnings-as-errors"]))
+    }
+
+    return initialSettings
+}()
+
 let package = Package(
     name: "async-http-client",
     platforms: [
@@ -24,11 +42,11 @@ let package = Package(
         .library(name: "AsyncHTTPClient", targets: ["AsyncHTTPClient"])
     ],
     dependencies: [
-        .package(url: "https://github.com/chkp-aviads/swift-nio.git", from: "2.83.0"),
-        .package(url: "https://github.com/chkp-aviads/swift-nio-ssl.git", from: "2.31.0"),
-        .package(url: "https://github.com/chkp-aviads/swift-nio-http2.git", from: "1.36.0"),
-        .package(url: "https://github.com/chkp-aviads/swift-nio-extras.git", from: "1.26.0"),
-        .package(url: "https://github.com/chkp-aviads/swift-nio-transport-services.git", from: "1.24.0"),
+        .package(url: "https://github.com/chkp-aviads/swift-nio.git", from: "2.84.0"),
+        .package(url: "https://github.com/chkp-aviads/swift-nio-ssl.git", from: "2.32.0"),
+        .package(url: "https://github.com/chkp-aviads/swift-nio-http2.git", from: "1.36.2"),
+        .package(url: "https://github.com/chkp-aviads/swift-nio-extras.git", from: "1.27.1"),
+        .package(url: "https://github.com/chkp-aviads/swift-nio-transport-services.git", from: "1.25.2"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.4.4"),
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.0.2"),
         .package(url: "https://github.com/apple/swift-algorithms.git", from: "1.0.0"),
@@ -58,7 +76,8 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "Atomics", package: "swift-atomics"),
                 .product(name: "Algorithms", package: "swift-algorithms"),
-            ]
+            ],
+            swiftSettings: strictConcurrencySettings
         ),
         .testTarget(
             name: "AsyncHTTPClientTests",
@@ -82,7 +101,8 @@ let package = Package(
                 .copy("Resources/self_signed_key.pem"),
                 .copy("Resources/example.com.cert.pem"),
                 .copy("Resources/example.com.private-key.pem"),
-            ]
+            ],
+            swiftSettings: strictConcurrencySettings
         ),
     ]
 )

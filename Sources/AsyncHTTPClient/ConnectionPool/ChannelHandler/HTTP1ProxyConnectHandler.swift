@@ -137,7 +137,7 @@ public final class HTTP1ProxyConnectHandler: ChannelDuplexHandler, RemovableChan
             return
         }
 
-        let timeout = context.eventLoop.scheduleTask(deadline: self.deadline) {
+        let timeout = context.eventLoop.assumeIsolated().scheduleTask(deadline: self.deadline) {
             switch self.state {
             case .initialized:
                 preconditionFailure("How can we have a scheduled timeout, if the connection is not even up?")

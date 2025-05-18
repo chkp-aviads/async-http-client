@@ -226,22 +226,49 @@ public class HTTPClient {
                 """
             )
         }
-        let errorStorage: NIOLockedValueBox<Error?> = NIOLockedValueBox(nil)
-        let continuation = DispatchWorkItem {}
-        self.shutdown(requiresCleanClose: requiresCleanClose, queue: DispatchQueue(label: "async-http-client.shutdown"))
-        { error in
-            if let error = error {
-                errorStorage.withLockedValue { errorStorage in
-                    errorStorage = error
+
+        final class ShutdownError: @unchecked Sendable {
+            // @unchecked because error is protected by lock.
+
+            // Stores whether the shutdown has happened or not.
+            private let lock: ConditionLock<Bool>
+            private var error: Error?
+
+            init() {
+                self.error = nil
+                self.lock = ConditionLock(value: false)
+            }
+
+            func didShutdown(_ error: (any Error)?) {
+                self.lock.lock(whenValue: false)
+                defer {
+                    self.lock.unlock(withValue: true)
                 }
+                self.error = error
             }
-            continuation.perform()
+
+            func blockUntilShutdown() -> (any Error)? {
+                self.lock.lock(whenValue: true)
+                defer {
+                    self.lock.unlock(withValue: true)
+                }
+                return self.error
+            }
         }
-        continuation.wait()
-        try errorStorage.withLockedValue { errorStorage in
-            if let error = errorStorage {
-                throw error
-            }
+
+        let shutdownError = ShutdownError()
+
+        self.shutdown(
+            requiresCleanClose: requiresCleanClose,
+            queue: DispatchQueue(label: "async-http-client.shutdown")
+        ) { error in
+            shutdownError.didShutdown(error)
+        }
+
+        let error = shutdownError.blockUntilShutdown()
+
+        if let error = error {
+            throw error
         }
     }
 
@@ -315,6 +342,7 @@ public class HTTPClient {
         }
     }
 
+    @Sendable
     private func makeOrGetFileIOThreadPool() -> NIOThreadPool {
         self.fileIOThreadPoolLock.withLock {
             guard let fileIOThreadPool = self.fileIOThreadPool else {
@@ -760,20 +788,20 @@ public class HTTPClient {
                 delegate: delegate
             )
 
-            var deadlineSchedule: Scheduled<Void>?
             if let deadline = deadline {
-                deadlineSchedule = taskEL.scheduleTask(deadline: deadline) {
+                let deadlineSchedule = taskEL.scheduleTask(deadline: deadline) {
                     requestBag.deadlineExceeded()
                 }
 
                 task.promise.futureResult.whenComplete { _ in
-                    deadlineSchedule?.cancel()
+                    deadlineSchedule.cancel()
                 }
             }
 
             self.poolManager.executeRequest(requestBag)
         } catch {
-            task.fail(with: error, delegateType: Delegate.self)
+            delegate.didReceiveError(task: task, error)
+            task.failInternal(with: error)
         }
 
         return task
@@ -860,6 +888,15 @@ public class HTTPClient {
         /// Whether ``HTTPClient`` will use Multipath TCP or not
         /// By default, don't use it
         public var enableMultipath: Bool
+
+        /// A method with access to the HTTP/1 connection channel that is called when creating the connection.
+        public var http1_1ConnectionDebugInitializer: (@Sendable (Channel) -> EventLoopFuture<Void>)?
+
+        /// A method with access to the HTTP/2 connection channel that is called when creating the connection.
+        public var http2ConnectionDebugInitializer: (@Sendable (Channel) -> EventLoopFuture<Void>)?
+
+        /// A method with access to the HTTP/2 stream channel that is called when creating the stream.
+        public var http2StreamChannelDebugInitializer: (@Sendable (Channel) -> EventLoopFuture<Void>)?
 
         public init(
             tlsConfiguration: TLSConfiguration? = nil,
@@ -962,6 +999,32 @@ public class HTTPClient {
                 ignoreUncleanSSLShutdown: ignoreUncleanSSLShutdown,
                 decompression: decompression
             )
+        }
+
+        public init(
+            tlsConfiguration: TLSConfiguration? = nil,
+            redirectConfiguration: RedirectConfiguration? = nil,
+            timeout: Timeout = Timeout(),
+            connectionPool: ConnectionPool = ConnectionPool(),
+            proxy: Proxy? = nil,
+            ignoreUncleanSSLShutdown: Bool = false,
+            decompression: Decompression = .disabled,
+            http1_1ConnectionDebugInitializer: (@Sendable (Channel) -> EventLoopFuture<Void>)? = nil,
+            http2ConnectionDebugInitializer: (@Sendable (Channel) -> EventLoopFuture<Void>)? = nil,
+            http2StreamChannelDebugInitializer: (@Sendable (Channel) -> EventLoopFuture<Void>)? = nil
+        ) {
+            self.init(
+                tlsConfiguration: tlsConfiguration,
+                redirectConfiguration: redirectConfiguration,
+                timeout: timeout,
+                connectionPool: connectionPool,
+                proxy: proxy,
+                ignoreUncleanSSLShutdown: ignoreUncleanSSLShutdown,
+                decompression: decompression
+            )
+            self.http1_1ConnectionDebugInitializer = http1_1ConnectionDebugInitializer
+            self.http2ConnectionDebugInitializer = http2ConnectionDebugInitializer
+            self.http2StreamChannelDebugInitializer = http2StreamChannelDebugInitializer
         }
     }
 

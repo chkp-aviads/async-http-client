@@ -32,14 +32,15 @@ extension HTTPClient {
         /// A streaming uploader.
         ///
         /// ``StreamWriter`` abstracts
-        public struct StreamWriter {
-            let closure: (IOData) -> EventLoopFuture<Void>
+        public struct StreamWriter: Sendable {
+            let closure: @Sendable (IOData) -> EventLoopFuture<Void>
 
             /// Create new ``HTTPClient/Body/StreamWriter``
             ///
             /// - parameters:
             ///     - closure: function that will be called to write actual bytes to the channel.
-            public init(closure: @escaping (IOData) -> EventLoopFuture<Void>) {
+            @preconcurrency
+            public init(closure: @escaping @Sendable (IOData) -> EventLoopFuture<Void>) {
                 self.closure = closure
             }
 
@@ -55,8 +56,8 @@ extension HTTPClient {
             func writeChunks<Bytes: Collection>(
                 of bytes: Bytes,
                 maxChunkSize: Int
-            ) -> EventLoopFuture<Void> where Bytes.Element == UInt8 {
-                // `StreamWriter` is has design issues, for example
+            ) -> EventLoopFuture<Void> where Bytes.Element == UInt8, Bytes: Sendable {
+                // `StreamWriter` has design issues, for example
                 // - https://github.com/swift-server/async-http-client/issues/194
                 // - https://github.com/swift-server/async-http-client/issues/264
                 // - We're not told the EventLoop the task runs on and the user is free to return whatever EL they
@@ -66,49 +67,52 @@ extension HTTPClient {
                 typealias Iterator = EnumeratedSequence<ChunksOfCountCollection<Bytes>>.Iterator
                 typealias Chunk = (offset: Int, element: ChunksOfCountCollection<Bytes>.Element)
 
-                func makeIteratorAndFirstChunk(
-                    bytes: Bytes
-                ) -> (
-                    iterator: NIOLockedValueBox<Iterator>,
-                    chunk: Chunk
-                )? {
-                    var iterator = bytes.chunks(ofCount: maxChunkSize).enumerated().makeIterator()
-                    guard let chunk = iterator.next() else {
-                        return nil
-                    }
-
-                    return (NIOLockedValueBox(iterator), chunk)
-                }
-
-                guard let (iterator, chunk) = makeIteratorAndFirstChunk(bytes: bytes) else {
-                    return self.write(IOData.byteBuffer(.init()))
-                }
-
-                @Sendable  // can't use closure here as we recursively call ourselves which closures can't do
-                func writeNextChunk(_ chunk: Chunk, allDone: EventLoopPromise<Void>) {
-                    if let nextElement = iterator.withLockedValue({ $0.next() }) {
-                        self.write(.byteBuffer(ByteBuffer(bytes: chunk.element))).map {
-                            let index = nextElement.offset
-                            if (index + 1) % 4 == 0 {
-                                // Let's not stack-overflow if the futures insta-complete which they at least in HTTP/2
-                                // mode.
-                                // Also, we must frequently return to the EventLoop because we may get the pause signal
-                                // from another thread. If we fail to do that promptly, we may balloon our body chunks
-                                // into memory.
-                                allDone.futureResult.eventLoop.execute {
-                                    writeNextChunk(nextElement, allDone: allDone)
-                                }
-                            } else {
-                                writeNextChunk(nextElement, allDone: allDone)
-                            }
-                        }.cascadeFailure(to: allDone)
-                    } else {
-                        self.write(.byteBuffer(ByteBuffer(bytes: chunk.element))).cascade(to: allDone)
-                    }
-                }
-
                 // HACK (again, we're not told the right EventLoop): Let's write 0 bytes to make the user tell us...
                 return self.write(.byteBuffer(ByteBuffer())).flatMapWithEventLoop { (_, loop) in
+                    func makeIteratorAndFirstChunk(
+                        bytes: Bytes
+                    ) -> (iterator: Iterator, chunk: Chunk)? {
+                        var iterator = bytes.chunks(ofCount: maxChunkSize).enumerated().makeIterator()
+                        guard let chunk = iterator.next() else {
+                            return nil
+                        }
+
+                        return (iterator, chunk)
+                    }
+
+                    guard let iteratorAndChunk = makeIteratorAndFirstChunk(bytes: bytes) else {
+                        return loop.makeSucceededVoidFuture()
+                    }
+
+                    var iterator = iteratorAndChunk.0
+                    let chunk = iteratorAndChunk.1
+
+                    // can't use closure here as we recursively call ourselves which closures can't do
+                    func writeNextChunk(_ chunk: Chunk, allDone: EventLoopPromise<Void>) {
+                        let loop = allDone.futureResult.eventLoop
+                        loop.assertInEventLoop()
+
+                        if let (index, element) = iterator.next() {
+                            self.write(.byteBuffer(ByteBuffer(bytes: chunk.element))).hop(to: loop).assumeIsolated().map
+                            {
+                                if (index + 1) % 4 == 0 {
+                                    // Let's not stack-overflow if the futures insta-complete which they at least in HTTP/2
+                                    // mode.
+                                    // Also, we must frequently return to the EventLoop because we may get the pause signal
+                                    // from another thread. If we fail to do that promptly, we may balloon our body chunks
+                                    // into memory.
+                                    allDone.futureResult.eventLoop.assumeIsolated().execute {
+                                        writeNextChunk((offset: index, element: element), allDone: allDone)
+                                    }
+                                } else {
+                                    writeNextChunk((offset: index, element: element), allDone: allDone)
+                                }
+                            }.nonisolated().cascadeFailure(to: allDone)
+                        } else {
+                            self.write(.byteBuffer(ByteBuffer(bytes: chunk.element))).cascade(to: allDone)
+                        }
+                    }
+
                     let allDone = loop.makePromise(of: Void.self)
                     writeNextChunk(chunk, allDone: allDone)
                     return allDone.futureResult
@@ -534,8 +538,12 @@ public final class ResponseAccumulator: HTTPClientResponseDelegate {
         }
     }
 
-    var history = [HTTPClient.RequestResponse]()
-    var state = State.idle
+    private struct MutableState: Sendable {
+        var history = [HTTPClient.RequestResponse]()
+        var state = State.idle
+    }
+
+    private let state: NIOLockedValueBox<MutableState>
     let requestMethod: HTTPMethod
     let requestHost: String
 
@@ -569,6 +577,7 @@ public final class ResponseAccumulator: HTTPClientResponseDelegate {
         self.requestMethod = request.method
         self.requestHost = request.host
         self.maxBodySize = maxBodySize
+        self.state = NIOLockedValueBox(MutableState())
     }
 
     public func didVisitURL(
@@ -576,100 +585,118 @@ public final class ResponseAccumulator: HTTPClientResponseDelegate {
         _ request: HTTPClient.Request,
         _ head: HTTPResponseHead
     ) {
-        self.history.append(.init(request: request, responseHead: head))
+        self.state.withLockedValue {
+            $0.history.append(.init(request: request, responseHead: head))
+        }
     }
 
     public func didReceiveHead(task: HTTPClient.Task<Response>, _ head: HTTPResponseHead) -> EventLoopFuture<Void> {
-        switch self.state {
-        case .idle:
-            if self.requestMethod != .HEAD,
-                let contentLength = head.headers.first(name: "Content-Length"),
-                let announcedBodySize = Int(contentLength),
-                announcedBodySize > self.maxBodySize
-            {
-                let error = ResponseTooBigError(maxBodySize: maxBodySize)
-                self.state = .error(error)
-                return task.eventLoop.makeFailedFuture(error)
-            }
+        let responseTooBig: Bool
 
-            self.state = .head(head)
-        case .head:
-            preconditionFailure("head already set")
-        case .body:
-            preconditionFailure("no head received before body")
-        case .end:
-            preconditionFailure("request already processed")
-        case .error:
-            break
+        if self.requestMethod != .HEAD,
+            let contentLength = head.headers.first(name: "Content-Length"),
+            let announcedBodySize = Int(contentLength),
+            announcedBodySize > self.maxBodySize
+        {
+            responseTooBig = true
+        } else {
+            responseTooBig = false
         }
-        return task.eventLoop.makeSucceededFuture(())
+
+        return self.state.withLockedValue {
+            switch $0.state {
+            case .idle:
+                if responseTooBig {
+                    let error = ResponseTooBigError(maxBodySize: self.maxBodySize)
+                    $0.state = .error(error)
+                    return task.eventLoop.makeFailedFuture(error)
+                }
+
+                $0.state = .head(head)
+            case .head:
+                preconditionFailure("head already set")
+            case .body:
+                preconditionFailure("no head received before body")
+            case .end:
+                preconditionFailure("request already processed")
+            case .error:
+                break
+            }
+            return task.eventLoop.makeSucceededFuture(())
+        }
     }
 
     public func didReceiveBodyPart(task: HTTPClient.Task<Response>, _ part: ByteBuffer) -> EventLoopFuture<Void> {
-        switch self.state {
-        case .idle:
-            preconditionFailure("no head received before body")
-        case .head(let head):
-            guard part.readableBytes <= self.maxBodySize else {
-                let error = ResponseTooBigError(maxBodySize: self.maxBodySize)
-                self.state = .error(error)
-                return task.eventLoop.makeFailedFuture(error)
-            }
-            self.state = .body(head, part)
-        case .body(let head, var body):
-            let newBufferSize = body.writerIndex + part.readableBytes
-            guard newBufferSize <= self.maxBodySize else {
-                let error = ResponseTooBigError(maxBodySize: self.maxBodySize)
-                self.state = .error(error)
-                return task.eventLoop.makeFailedFuture(error)
-            }
+        self.state.withLockedValue {
+            switch $0.state {
+            case .idle:
+                preconditionFailure("no head received before body")
+            case .head(let head):
+                guard part.readableBytes <= self.maxBodySize else {
+                    let error = ResponseTooBigError(maxBodySize: self.maxBodySize)
+                    $0.state = .error(error)
+                    return task.eventLoop.makeFailedFuture(error)
+                }
+                $0.state = .body(head, part)
+            case .body(let head, var body):
+                let newBufferSize = body.writerIndex + part.readableBytes
+                guard newBufferSize <= self.maxBodySize else {
+                    let error = ResponseTooBigError(maxBodySize: self.maxBodySize)
+                    $0.state = .error(error)
+                    return task.eventLoop.makeFailedFuture(error)
+                }
 
-            // The compiler can't prove that `self.state` is dead here (and it kinda isn't, there's
-            // a cross-module call in the way) so we need to drop the original reference to `body` in
-            // `self.state` or we'll get a CoW. To fix that we temporarily set the state to `.end` (which
-            // has no associated data). We'll fix it at the bottom of this block.
-            self.state = .end
-            var part = part
-            body.writeBuffer(&part)
-            self.state = .body(head, body)
-        case .end:
-            preconditionFailure("request already processed")
-        case .error:
-            break
+                // The compiler can't prove that `self.state` is dead here (and it kinda isn't, there's
+                // a cross-module call in the way) so we need to drop the original reference to `body` in
+                // `self.state` or we'll get a CoW. To fix that we temporarily set the state to `.end` (which
+                // has no associated data). We'll fix it at the bottom of this block.
+                $0.state = .end
+                var part = part
+                body.writeBuffer(&part)
+                $0.state = .body(head, body)
+            case .end:
+                preconditionFailure("request already processed")
+            case .error:
+                break
+            }
+            return task.eventLoop.makeSucceededFuture(())
         }
-        return task.eventLoop.makeSucceededFuture(())
     }
 
     public func didReceiveError(task: HTTPClient.Task<Response>, _ error: Error) {
-        self.state = .error(error)
+        self.state.withLockedValue {
+            $0.state = .error(error)
+        }
     }
 
     public func didFinishRequest(task: HTTPClient.Task<Response>) throws -> Response {
-        switch self.state {
-        case .idle:
-            preconditionFailure("no head received before end")
-        case .head(let head):
-            return Response(
-                host: self.requestHost,
-                status: head.status,
-                version: head.version,
-                headers: head.headers,
-                body: nil,
-                history: self.history
-            )
-        case .body(let head, let body):
-            return Response(
-                host: self.requestHost,
-                status: head.status,
-                version: head.version,
-                headers: head.headers,
-                body: body,
-                history: self.history
-            )
-        case .end:
-            preconditionFailure("request already processed")
-        case .error(let error):
-            throw error
+        try self.state.withLockedValue {
+            switch $0.state {
+            case .idle:
+                preconditionFailure("no head received before end")
+            case .head(let head):
+                return Response(
+                    host: self.requestHost,
+                    status: head.status,
+                    version: head.version,
+                    headers: head.headers,
+                    body: nil,
+                    history: $0.history
+                )
+            case .body(let head, let body):
+                return Response(
+                    host: self.requestHost,
+                    status: head.status,
+                    version: head.version,
+                    headers: head.headers,
+                    body: body,
+                    history: $0.history
+                )
+            case .end:
+                preconditionFailure("request already processed")
+            case .error(let error):
+                throw error
+            }
         }
     }
 }
@@ -705,9 +732,10 @@ public final class ResponseAccumulator: HTTPClientResponseDelegate {
 ///          released together with the `HTTPTaskHandler` when channel is closed.
 ///          Users of the library are not required to keep a reference to the
 ///          object that implements this protocol, but may do so if needed.
-public protocol HTTPClientResponseDelegate: AnyObject {
-    associatedtype Response
-    
+@preconcurrency
+public protocol HTTPClientResponseDelegate: AnyObject, Sendable {
+    associatedtype Response: Sendable
+
     /// Called when the request is resolved to IP address
     ///
     /// - parameters:
@@ -893,7 +921,7 @@ extension URL {
     }
 }
 
-protocol HTTPClientTaskDelegate {
+protocol HTTPClientTaskDelegate: Sendable {
     func fail(_ error: Error)
 }
 
@@ -902,7 +930,7 @@ extension HTTPClient {
     ///
     /// Will be created by the library and could be used for obtaining
     /// `EventLoopFuture<Response>` of the execution or cancellation of the execution.
-    public final class Task<Response> {
+    public final class Task<Response>: Sendable {
         /// The `EventLoop` the delegate will be executed on.
         public let eventLoop: EventLoop
         /// The `Logger` used by the `Task` for logging.
@@ -910,41 +938,46 @@ extension HTTPClient {
 
         let promise: EventLoopPromise<Response>
 
+        struct State: Sendable {
+            var isCancelled: Bool
+            var taskDelegate: HTTPClientTaskDelegate?
+        }
+
+        private let state: NIOLockedValueBox<State>
+
         var isCancelled: Bool {
-            self.lock.withLock { self._isCancelled }
+            self.state.withLockedValue { $0.isCancelled }
         }
 
         var taskDelegate: HTTPClientTaskDelegate? {
             get {
-                self.lock.withLock { self._taskDelegate }
+                self.state.withLockedValue { $0.taskDelegate }
             }
             set {
-                self.lock.withLock { self._taskDelegate = newValue }
+                self.state.withLockedValue { $0.taskDelegate = newValue }
             }
         }
 
-        private var _isCancelled: Bool = false
-        private var _taskDelegate: HTTPClientTaskDelegate?
-        private let lock = NIOLock()
-        private let makeOrGetFileIOThreadPool: () -> NIOThreadPool
+        private let makeOrGetFileIOThreadPool: @Sendable () -> NIOThreadPool
 
         /// The shared thread pool of a ``HTTPClient`` used for file IO. It is lazily created on first access.
         internal var fileIOThreadPool: NIOThreadPool {
             self.makeOrGetFileIOThreadPool()
         }
 
-        init(eventLoop: EventLoop, logger: Logger, makeOrGetFileIOThreadPool: @escaping () -> NIOThreadPool) {
+        init(eventLoop: EventLoop, logger: Logger, makeOrGetFileIOThreadPool: @escaping @Sendable () -> NIOThreadPool) {
             self.eventLoop = eventLoop
             self.promise = eventLoop.makePromise()
             self.logger = logger
             self.makeOrGetFileIOThreadPool = makeOrGetFileIOThreadPool
+            self.state = NIOLockedValueBox(State(isCancelled: false, taskDelegate: nil))
         }
 
         static func failedTask(
             eventLoop: EventLoop,
             error: Error,
             logger: Logger,
-            makeOrGetFileIOThreadPool: @escaping () -> NIOThreadPool
+            makeOrGetFileIOThreadPool: @escaping @Sendable () -> NIOThreadPool
         ) -> Task<Response> {
             let task = self.init(
                 eventLoop: eventLoop,
@@ -965,7 +998,8 @@ extension HTTPClient {
         /// - returns: The value of  ``futureResult`` when it completes.
         /// - throws: The error value of ``futureResult`` if it errors.
         @available(*, noasync, message: "wait() can block indefinitely, prefer get()", renamed: "get()")
-        public func wait() throws -> Response {
+        @preconcurrency
+        public func wait() throws -> Response where Response: Sendable {
             try self.promise.futureResult.wait()
         }
 
@@ -976,7 +1010,8 @@ extension HTTPClient {
         /// - returns: The value of ``futureResult`` when it completes.
         /// - throws: The error value of ``futureResult`` if it errors.
         @available(macOS 10.15, iOS 13.0, watchOS 6.0, tvOS 13.0, *)
-        public func get() async throws -> Response {
+        @preconcurrency
+        public func get() async throws -> Response where Response: Sendable {
             try await self.promise.futureResult.get()
         }
 
@@ -993,39 +1028,28 @@ extension HTTPClient {
         ///
         /// - Parameter error: the error that is used to fail the promise
         public func fail(reason error: Error) {
-            let taskDelegate = self.lock.withLock { () -> HTTPClientTaskDelegate? in
-                self._isCancelled = true
-                return self._taskDelegate
+            let taskDelegate = self.state.withLockedValue { state in
+                state.isCancelled = true
+                return state.taskDelegate
             }
 
             taskDelegate?.fail(error)
         }
 
-        func succeed<Delegate: HTTPClientResponseDelegate>(
-            promise: EventLoopPromise<Response>?,
-            with value: Response,
-            delegateType: Delegate.Type,
-            closing: Bool
-        ) {
-            promise?.succeed(value)
-        }
-
-        func fail<Delegate: HTTPClientResponseDelegate>(
-            with error: Error,
-            delegateType: Delegate.Type
+        /// Called internally only, used to fail a task from within the state machine functionality.
+        func failInternal(
+            with error: Error
         ) {
             self.promise.fail(error)
         }
     }
 }
 
-extension HTTPClient.Task: @unchecked Sendable {}
-
 internal struct TaskCancelEvent {}
 
 // MARK: - RedirectHandler
 
-internal struct RedirectHandler<ResponseType> {
+internal struct RedirectHandler<ResponseType: Sendable> {
     let request: HTTPClient.Request
     let redirectState: RedirectState
     let execute: (HTTPClient.Request, RedirectState) -> HTTPClient.Task<ResponseType>

@@ -38,13 +38,13 @@ extension String {
     }
 }
 
-enum ConnectionPool {
+enum ConnectionPool : Sendable {
     /// Used by the `ConnectionPool` to index its `HTTP1ConnectionProvider`s
     ///
     /// A key is initialized from a `Request`, it uses the components to derive a hashed value
     /// used by the `providers` dictionary to allow retrieving and creating
     /// connection providers associated to a certain request in constant time.
-    struct Key: Hashable, CustomStringConvertible {
+    struct Key: Hashable, CustomStringConvertible, Sendable {
         var scheme: Scheme
         var connectionTarget: ConnectionTarget
         private var tlsConfiguration: BestEffortHashableTLSConfiguration?
