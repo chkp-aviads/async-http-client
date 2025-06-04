@@ -15,8 +15,8 @@
 import NIOCore
 import NIOSOCKS
 
-final class SOCKSEventsHandler: ChannelInboundHandler, RemovableChannelHandler {
-    typealias InboundIn = NIOAny
+public final class SOCKSEventsHandler: ChannelInboundHandler, RemovableChannelHandler {
+    public typealias InboundIn = NIOAny
 
     enum State {
         // transitions to channelActive or failed
@@ -29,19 +29,21 @@ final class SOCKSEventsHandler: ChannelInboundHandler, RemovableChannelHandler {
         case failed(Error)
     }
 
+    /// A promise that will be fulfilled when the SOCKS handshake is established.
     private var socksEstablishedPromise: EventLoopPromise<Void>?
-    var socksEstablishedFuture: EventLoopFuture<Void>? {
+    public var socksEstablishedFuture: EventLoopFuture<Void>? {
         self.socksEstablishedPromise?.futureResult
     }
 
+    public var socksEstablishedEvent: SOCKSProxyEstablishedEvent?
     private let deadline: NIODeadline
     private var state: State = .initialized
 
-    init(deadline: NIODeadline) {
+    public init(deadline: NIODeadline) {
         self.deadline = deadline
     }
 
-    func handlerAdded(context: ChannelHandlerContext) {
+    public func handlerAdded(context: ChannelHandlerContext) {
         self.socksEstablishedPromise = context.eventLoop.makePromise(of: Void.self)
 
         if context.channel.isActive {
@@ -49,17 +51,17 @@ final class SOCKSEventsHandler: ChannelInboundHandler, RemovableChannelHandler {
         }
     }
 
-    func handlerRemoved(context: ChannelHandlerContext) {
+    public func handlerRemoved(context: ChannelHandlerContext) {
         struct NoResult: Error {}
         self.socksEstablishedPromise!.fail(NoResult())
     }
 
-    func channelActive(context: ChannelHandlerContext) {
+    public func channelActive(context: ChannelHandlerContext) {
         self.connectionStarted(context: context)
     }
 
-    func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
-        guard event is SOCKSProxyEstablishedEvent else {
+    public func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
+        guard let socksEstablishedEvent = event as? SOCKSProxyEstablishedEvent else {
             return context.fireUserInboundEventTriggered(event)
         }
 
@@ -70,6 +72,7 @@ final class SOCKSEventsHandler: ChannelInboundHandler, RemovableChannelHandler {
             preconditionFailure("`SOCKSProxyEstablishedEvent` must only be fired once.")
         case .channelActive(let scheduled):
             self.state = .socksEstablished
+            self.socksEstablishedEvent = socksEstablishedEvent
             scheduled.cancel()
             self.socksEstablishedPromise?.succeed(())
             context.fireUserInboundEventTriggered(event)
@@ -79,7 +82,7 @@ final class SOCKSEventsHandler: ChannelInboundHandler, RemovableChannelHandler {
         }
     }
 
-    func errorCaught(context: ChannelHandlerContext, error: Error) {
+    public func errorCaught(context: ChannelHandlerContext, error: Error) {
         switch self.state {
         case .initialized:
             self.state = .failed(error)

@@ -462,12 +462,12 @@ extension HTTPClient {
 
     /// HTTP authentication.
     public struct Authorization: Hashable, Sendable {
-        private enum Scheme: Hashable {
-            case Basic(String)
+        public enum Scheme: Hashable, Sendable {
+            case Basic(username: String, password: String)
             case Bearer(String)
         }
 
-        private let scheme: Scheme
+        public let scheme: Scheme
 
         private init(scheme: Scheme) {
             self.scheme = scheme
@@ -475,14 +475,7 @@ extension HTTPClient {
 
         /// HTTP basic auth.
         public static func basic(username: String, password: String) -> HTTPClient.Authorization {
-            .basic(credentials: Base64.encode(bytes: "\(username):\(password)".utf8))
-        }
-
-        /// HTTP basic auth.
-        ///
-        /// This version uses the raw string directly.
-        public static func basic(credentials: String) -> HTTPClient.Authorization {
-            .init(scheme: .Basic(credentials))
+            .init(scheme: .Basic(username: username, password: password))
         }
 
         /// HTTP bearer auth
@@ -493,8 +486,8 @@ extension HTTPClient {
         /// The header string for this auth field.
         public var headerValue: String {
             switch self.scheme {
-            case .Basic(let credentials):
-                return "Basic \(credentials)"
+            case .Basic(let username, let password):
+                return "Basic \(Base64.encode(bytes: "\(username):\(password)".utf8))"
             case .Bearer(let tokens):
                 return "Bearer \(tokens)"
             }

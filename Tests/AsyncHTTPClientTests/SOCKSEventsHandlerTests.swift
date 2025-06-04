@@ -26,9 +26,10 @@ class SOCKSEventsHandlerTests: XCTestCase {
         let embedded = EmbeddedChannel(handlers: [socksEventsHandler])
         XCTAssertNotNil(socksEventsHandler.socksEstablishedFuture)
 
-        XCTAssertNoThrow(try embedded.connect(to: .makeAddressResolvingHost("localhost", port: 0)).wait())
+        let address = try! SocketAddress.makeAddressResolvingHost("localhost", port: 0)
+        XCTAssertNoThrow(try embedded.connect(to: address).wait())
 
-        embedded.pipeline.fireUserInboundEventTriggered(SOCKSProxyEstablishedEvent())
+        embedded.pipeline.fireUserInboundEventTriggered(SOCKSProxyEstablishedEvent(boundAddress: .address(address), command: .connect))
         XCTAssertNoThrow(try XCTUnwrap(socksEventsHandler.socksEstablishedFuture).wait())
     }
 

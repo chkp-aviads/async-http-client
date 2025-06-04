@@ -305,7 +305,14 @@ extension HTTPConnectionPool.ConnectionFactory {
         // upgraded to TLS before we send our first request.
         return self.makePlainBootstrap(requester: requester, connectionID: connectionID, deadline: deadline, eventLoop: eventLoop).flatMap { bootstrap in
             return bootstrap.connect(host: proxy.host, port: proxy.port).flatMap { channel in
-                let socksConnectHandler = SOCKSClientHandler(targetAddress: SOCKSAddress(self.key.connectionTarget))
+                var proxyUsername : String?
+                var proxyPassword : String?
+                if let proxyAuth = proxy.authorization, case .Basic(let username, let password) = proxyAuth.scheme {
+                    proxyUsername = username
+                    proxyPassword = password
+                }
+                    
+                let socksConnectHandler = SOCKSClientHandler(targetAddress: SOCKSAddress(self.key.connectionTarget), username: proxyUsername, password: proxyPassword)
                 let socksEventHandler = SOCKSEventsHandler(deadline: deadline)
                 
                 do {

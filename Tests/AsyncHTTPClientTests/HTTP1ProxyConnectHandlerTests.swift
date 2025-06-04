@@ -64,7 +64,7 @@ class HTTP1ProxyConnectHandlerTests: XCTestCase {
         let proxyConnectHandler = HTTP1ProxyConnectHandler(
             targetHost: "swift.org",
             targetPort: 443,
-            proxyAuthorization: .basic(credentials: "abc123"),
+            proxyAuthorization: .basic(username: "abc123", password: "abc123"),
             deadline: .now() + .seconds(10)
         )
 
@@ -79,7 +79,7 @@ class HTTP1ProxyConnectHandlerTests: XCTestCase {
         XCTAssertEqual(head.method, .CONNECT)
         XCTAssertEqual(head.uri, "swift.org:443")
         XCTAssertEqual(head.headers["host"].first, "swift.org")
-        XCTAssertEqual(head.headers["proxy-authorization"].first, "Basic abc123")
+        XCTAssertEqual(head.headers["proxy-authorization"].first, "Basic YWJjMTIzOmFiYzEyMw==")
         XCTAssertEqual(try embedded.readOutbound(as: HTTPClientRequestPart.self), .end(nil))
 
         let responseHead = HTTPResponseHead(version: .http1_1, status: .ok)

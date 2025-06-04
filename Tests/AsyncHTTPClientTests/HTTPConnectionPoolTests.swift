@@ -275,7 +275,7 @@ class HTTPConnectionPoolTests: XCTestCase {
             sslContextCache: .init(),
             tlsConfiguration: .none,
             clientConfiguration: .init(
-                proxy: .init(host: "localhost", port: httpBin.port, type: .http(.basic(credentials: "invalid")))
+                proxy: .init(host: "localhost", port: httpBin.port, type: .http, authorization: .basic(username: "invalid", password: "invalid"))
             ),
             key: .init(request),
             delegate: poolDelegate,
@@ -329,7 +329,7 @@ class HTTPConnectionPoolTests: XCTestCase {
             sslContextCache: .init(),
             tlsConfiguration: .none,
             clientConfiguration: .init(
-                proxy: .init(host: "localhost", port: httpBin.port, type: .http(.basic(credentials: "invalid")))
+                proxy: .init(host: "localhost", port: httpBin.port, type: .http, authorization: .basic(username: "invalid", password: "invalid"))
             ),
             key: .init(request),
             delegate: poolDelegate,
@@ -383,7 +383,7 @@ class HTTPConnectionPoolTests: XCTestCase {
             sslContextCache: .init(),
             tlsConfiguration: .none,
             clientConfiguration: .init(
-                proxy: .init(host: "localhost", port: httpBin.port, type: .http(.basic(credentials: "invalid")))
+                proxy: .init(host: "localhost", port: httpBin.port, type: .http, authorization: .basic(username: "invalid", password: "invalid"))
             ),
             key: .init(request),
             delegate: poolDelegate,
