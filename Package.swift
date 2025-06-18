@@ -46,7 +46,7 @@ let package = Package(
         .package(url: "https://github.com/chkp-aviads/swift-nio-ssl.git", from: "2.32.0"),
         .package(url: "https://github.com/chkp-aviads/swift-nio-http2.git", from: "1.36.2"),
         .package(url: "https://github.com/chkp-aviads/swift-nio-extras.git", .upToNextMinor(from: "1.26.1")),
-        .package(url: "https://github.com/chkp-aviads/swift-nio-transport-services.git", from: "1.25.2"),
+        .package(url: "https://github.com/chkp-aviads/swift-nio-transport-services.git", from: "1.25.3"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.4.4"),
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.0.2"),
         .package(url: "https://github.com/apple/swift-algorithms.git", from: "1.0.0"),

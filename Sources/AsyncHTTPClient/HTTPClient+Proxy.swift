@@ -26,7 +26,7 @@ extension HTTPClient.Configuration {
     /// TLS will be established _after_ successful proxy, between your client
     /// and the destination server.
     public struct Proxy: Sendable, Hashable {
-        enum ProxyType: Hashable {
+        public enum ProxyType: Hashable, Sendable {
             case http
             case socks
         }
@@ -36,7 +36,7 @@ extension HTTPClient.Configuration {
         /// Specifies Proxy server port.
         public var port: Int
         /// Proxy type
-        var type: ProxyType
+        public var type: ProxyType
         /// Specifies Proxy server authorization.
         public var authorization: HTTPClient.Authorization?
 
