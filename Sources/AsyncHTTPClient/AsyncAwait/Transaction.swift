@@ -31,6 +31,7 @@ final class Transaction:
     let connectionDeadline: NIODeadline
     let preferredEventLoop: EventLoop
     let requestOptions: RequestOptions
+    var resolvedEndpoint: SocketAddress?
 
     private let state: NIOLockedValueBox<StateMachine>
 
@@ -188,7 +189,9 @@ extension Transaction: HTTPExecutableRequest {
         }
     }
     
-    func requestResolvedToEndpoint(_ address: SocketAddress) {}
+    func requestResolvedToEndpoint(_ address: SocketAddress) {
+        self.resolvedEndpoint = address
+    }
 
     func requestHeadSent() {}
 
@@ -247,7 +250,8 @@ extension Transaction: HTTPExecutableRequest {
                 status: head.status,
                 headers: head.headers,
                 body: body,
-                history: []
+                history: [],
+                resolvedEndpoint: self.resolvedEndpoint
             )
             continuation.resume(returning: response)
         }

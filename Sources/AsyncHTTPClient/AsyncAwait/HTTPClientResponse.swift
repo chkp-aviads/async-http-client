@@ -36,6 +36,9 @@ public struct HTTPClientResponse: Sendable {
 
     /// The history of all requests and responses in redirect order.
     public var history: [HTTPClientRequestResponse]
+    
+    /// The resolved endpoint address for this response.
+    public var resolvedEndpoint : SocketAddress?
 
     /// The target URL (after redirects) of the response.
     public var url: URL? {
@@ -64,13 +67,15 @@ public struct HTTPClientResponse: Sendable {
         status: HTTPResponseStatus = .ok,
         headers: HTTPHeaders = [:],
         body: Body = Body(),
-        history: [HTTPClientRequestResponse] = []
+        history: [HTTPClientRequestResponse] = [],
+        resolvedEndpoint: SocketAddress? = nil
     ) {
         self.version = version
         self.status = status
         self.headers = headers
         self.body = body
         self.history = history
+        self.resolvedEndpoint = resolvedEndpoint
     }
 
     init(
@@ -79,7 +84,8 @@ public struct HTTPClientResponse: Sendable {
         status: HTTPResponseStatus,
         headers: HTTPHeaders,
         body: TransactionBody,
-        history: [HTTPClientRequestResponse]
+        history: [HTTPClientRequestResponse],
+        resolvedEndpoint: SocketAddress? = nil
     ) {
         self.init(
             version: version,
@@ -95,7 +101,8 @@ public struct HTTPClientResponse: Sendable {
                     )
                 )
             ),
-            history: history
+            history: history,
+            resolvedEndpoint: resolvedEndpoint
         )
     }
 }
