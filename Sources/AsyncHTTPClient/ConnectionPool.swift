@@ -76,7 +76,7 @@ enum ConnectionPool : Sendable {
                 hostDescription = socketPath
             }
             return
-                "\(self.scheme)://\(hostDescription)\(self.serverNameIndicatorOverride.map { " SNI: \($0)" } ?? "") TLS-hash: \(hash) "
+                "\(self.scheme)://\(hostDescription)\(self.serverNameIndicatorOverride.map { " SNI: \($0)" } ?? "") TLS-hash: \(hash)"
         }
     }
 }
