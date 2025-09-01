@@ -830,6 +830,8 @@ public final class HTTPClient: Sendable {
         
 #if canImport(Network)
         public var nwParametersConfigurator: (@Sendable (NWParameters) -> Void)?
+        
+        public var configureTlsOptions: (@Sendable (_ options: NWProtocolTLS.Options, _ channel: Channel) -> Void)?
 #endif
 
         /// Enables following 3xx redirects automatically.
