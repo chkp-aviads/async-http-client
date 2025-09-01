@@ -519,13 +519,16 @@ extension HTTPConnectionPool.ConnectionFactory {
             let bootstrapFuture = tlsConfig.getNWProtocolTLSOptions(on: eventLoop, serverNameIndicatorOverride: serverNameIndicatorOverride).map {
                 options -> NIOClientTCPBootstrapProtocol in
 
-                NIOTSConnectionBootstrap(group: eventLoop)  // validated above
+                let configureTlsOptions = self.clientConfiguration.configureTlsOptions
+                
+                return NIOTSConnectionBootstrap(group: eventLoop)  // validated above
                     .withNWParameters(clientConfiguration.nwParametersConfigurator)
                     .channelOption(NIOTSChannelOptions.waitForActivity, value: self.clientConfiguration.networkFrameworkWaitForConnectivity)
                     .channelOption(NIOTSChannelOptions.multipathServiceType, value: self.clientConfiguration.enableMultipath ? .handover : .disabled)
                     .connectTimeout(deadline - NIODeadline.now())
                     .tlsOptions(options)
                     .channelInitializer { channel in
+                        configureTlsOptions?(options, channel)  // allow user to further customize the TLS options per channel
                         do {
                             try channel.pipeline.syncOperations.addHandler(HTTPClient.NWErrorHandler())
                             try channel.pipeline.syncOperations.addHandler(
