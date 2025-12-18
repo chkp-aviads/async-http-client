@@ -68,13 +68,8 @@ extension HTTPConnectionPool.ConnectionFactory {
         var logger = logger
         logger[metadataKey: "ahc-connection-id"] = "\(connectionID)"
 
-        self.makeChannel(
-            requester: requester,
-            connectionID: connectionID,
-            deadline: deadline,
-            eventLoop: eventLoop,
-            logger: logger
-        ).whenComplete { [logger] result in
+        let promise = eventLoop.makePromise(of: NegotiatedProtocol.self)
+        promise.futureResult.whenComplete { [logger] result in
             switch result {
             case .success(.http1_1(let channel)):
                 do {
@@ -143,10 +138,26 @@ extension HTTPConnectionPool.ConnectionFactory {
                     }
                 }
 
-            case .failure(let error):
+            case .failure(var error):
+                // let's map `ChannelError.connectTimeout` into a `HTTPClientError.connectTimeout`
+                switch error {
+                case ChannelError.connectTimeout:
+                    error = HTTPClientError.connectTimeout
+                default:
+                    ()
+                }
                 requester.failedToCreateHTTPConnection(connectionID, error: error)
             }
         }
+
+        self.makeChannel(
+            requester: requester,
+            connectionID: connectionID,
+            deadline: deadline,
+            eventLoop: eventLoop,
+            logger: logger,
+            promise: promise
+        )
     }
 
     enum NegotiatedProtocol {
@@ -159,49 +170,41 @@ extension HTTPConnectionPool.ConnectionFactory {
         connectionID: HTTPConnectionPool.Connection.ID,
         deadline: NIODeadline,
         eventLoop: EventLoop,
-        logger: Logger
-    ) -> EventLoopFuture<NegotiatedProtocol> {
-        let channelFuture: EventLoopFuture<NegotiatedProtocol>
-
+        logger: Logger,
+        promise: EventLoopPromise<NegotiatedProtocol>
+    ) {
         if self.key.scheme.isProxyable, let proxy = self.clientConfiguration.proxy {
             switch proxy.type {
             case .socks:
-                channelFuture = self.makeSOCKSProxyChannel(
+                self.makeSOCKSProxyChannel(
                     proxy,
                     requester: requester,
                     connectionID: connectionID,
                     deadline: deadline,
                     eventLoop: eventLoop,
-                    logger: logger
+                    logger: logger,
+                    promise: promise
                 )
             case .http:
-                channelFuture = self.makeHTTPProxyChannel(
+                self.makeHTTPProxyChannel(
                     proxy,
                     requester: requester,
                     connectionID: connectionID,
                     deadline: deadline,
                     eventLoop: eventLoop,
-                    logger: logger
+                    logger: logger,
+                    promise: promise
                 )
             }
         } else {
-            channelFuture = self.makeNonProxiedChannel(
+            self.makeNonProxiedChannel(
                 requester: requester,
                 connectionID: connectionID,
                 deadline: deadline,
                 eventLoop: eventLoop,
-                logger: logger
+                logger: logger,
+                promise: promise
             )
-        }
-
-        // let's map `ChannelError.connectTimeout` into a `HTTPClientError.connectTimeout`
-        return channelFuture.flatMapErrorThrowing { error throws -> NegotiatedProtocol in
-            switch error {
-            case ChannelError.connectTimeout:
-                throw HTTPClientError.connectTimeout
-            default:
-                throw error
-            }
         }
     }
 
@@ -210,29 +213,27 @@ extension HTTPConnectionPool.ConnectionFactory {
         connectionID: HTTPConnectionPool.Connection.ID,
         deadline: NIODeadline,
         eventLoop: EventLoop,
-        logger: Logger
-    ) -> EventLoopFuture<NegotiatedProtocol> {
+        logger: Logger,
+        promise: EventLoopPromise<NegotiatedProtocol>
+    ) {
         switch self.key.scheme {
         case .http, .httpUnix, .unix:
-            return self.makePlainChannel(
-                requester: requester,
-                connectionID: connectionID,
-                deadline: deadline,
-                eventLoop: eventLoop
-            ).map { .http1_1($0) }
-        case .https, .httpsUnix:
-            return self.makeTLSChannel(
+            self.makePlainChannel(
                 requester: requester,
                 connectionID: connectionID,
                 deadline: deadline,
                 eventLoop: eventLoop,
-                logger: logger
-            ).flatMapThrowing {
-                channel,
-                negotiated in
-
-                try self.matchALPNToHTTPVersion(negotiated, channel: channel)
-            }
+                promise: promise
+            )
+        case .https, .httpsUnix:
+            self.makeTLSChannel(
+                requester: requester,
+                connectionID: connectionID,
+                deadline: deadline,
+                eventLoop: eventLoop,
+                logger: logger,
+                promise: promise
+            )
         }
     }
 
@@ -240,12 +241,17 @@ extension HTTPConnectionPool.ConnectionFactory {
         requester: Requester,
         connectionID: HTTPConnectionPool.Connection.ID,
         deadline: NIODeadline,
-        eventLoop: EventLoop
-    ) -> EventLoopFuture<Channel> {
+        eventLoop: EventLoop,
+        promise: EventLoopPromise<NegotiatedProtocol>
+    ) {
         precondition(!self.key.scheme.usesTLS, "Unexpected scheme")
-        return self.makePlainBootstrap(requester: requester, connectionID: connectionID, deadline: deadline, eventLoop: eventLoop).flatMap { bootstrap in
-            return bootstrap.connect(target: self.key.connectionTarget, resolver: clientConfiguration.dnsResolver?(), eventLoop: eventLoop)
-        }
+        return self.makePlainBootstrap(requester: requester, connectionID: connectionID, deadline: deadline, eventLoop: eventLoop)
+            .flatMap { bootstrap in
+                return bootstrap.connect(target: self.key.connectionTarget, resolver: clientConfiguration.dnsResolver?(), eventLoop: eventLoop)
+            }.map {
+                .http1_1($0)
+            }
+            .cascade(to: promise)
     }
 
     private func makeHTTPProxyChannel<Requester: HTTPConnectionRequester>(
@@ -254,13 +260,22 @@ extension HTTPConnectionPool.ConnectionFactory {
         connectionID: HTTPConnectionPool.Connection.ID,
         deadline: NIODeadline,
         eventLoop: EventLoop,
-        logger: Logger
-    ) -> EventLoopFuture<NegotiatedProtocol> {
+        logger: Logger,
+        promise: EventLoopPromise<NegotiatedProtocol>
+    ) {
         // A proxy connection starts with a plain text connection to the proxy server. After
         // the connection has been established with the proxy server, the connection might be
         // upgraded to TLS before we send our first request.
-        return self.makePlainBootstrap(requester: requester, connectionID: connectionID, deadline: deadline, eventLoop: eventLoop).flatMap { bootstrap in
-            return bootstrap.connect(host: proxy.host, port: proxy.port).flatMap { channel in
+        self.makePlainBootstrap(
+            requester: requester,
+            connectionID: connectionID,
+            deadline: deadline,
+            eventLoop: eventLoop
+        ).flatMap { bootstrap in
+            bootstrap.connect(host: proxy.host, port: proxy.port)
+        }.whenComplete { result in
+            switch result {
+            case .success(let channel):
                 let encoder = HTTPRequestEncoder()
                 let decoder = ByteToMessageHandler(HTTPResponseDecoder(leftOverBytesStrategy: .dropBytes))
                 let proxyHandler = HTTP1ProxyConnectHandler(
@@ -274,7 +289,7 @@ extension HTTPConnectionPool.ConnectionFactory {
                     try channel.pipeline.syncOperations.addHandler(decoder)
                     try channel.pipeline.syncOperations.addHandler(proxyHandler)
                 } catch {
-                    return channel.eventLoop.makeFailedFuture(error)
+                    return promise.fail(error)
                 }
                 
                 // The proxyEstablishedFuture is set as soon as the HTTP1ProxyConnectHandler is in a
@@ -287,7 +302,9 @@ extension HTTPConnectionPool.ConnectionFactory {
                     }.nonisolated()
                 }.flatMap {
                     self.setupTLSInProxyConnectionIfNeeded(channel, deadline: deadline, logger: logger)
-                }.nonisolated()
+                }.nonisolated().cascade(to: promise)
+            case .failure(let error):
+                promise.fail(error)
             }
         }
     }
@@ -298,20 +315,29 @@ extension HTTPConnectionPool.ConnectionFactory {
         connectionID: HTTPConnectionPool.Connection.ID,
         deadline: NIODeadline,
         eventLoop: EventLoop,
-        logger: Logger
-    ) -> EventLoopFuture<NegotiatedProtocol> {
+        logger: Logger,
+        promise: EventLoopPromise<NegotiatedProtocol>
+    ) {
         // A proxy connection starts with a plain text connection to the proxy server. After
         // the connection has been established with the proxy server, the connection might be
         // upgraded to TLS before we send our first request.
-        return self.makePlainBootstrap(requester: requester, connectionID: connectionID, deadline: deadline, eventLoop: eventLoop).flatMap { bootstrap in
-            return bootstrap.connect(host: proxy.host, port: proxy.port).flatMap { channel in
+        self.makePlainBootstrap(
+            requester: requester,
+            connectionID: connectionID,
+            deadline: deadline,
+            eventLoop: eventLoop
+        ).flatMap { bootstrap in
+            bootstrap.connect(host: proxy.host, port: proxy.port)
+        }.whenComplete { result in
+            switch result {
+            case .success(let channel):
                 var proxyUsername : String?
                 var proxyPassword : String?
                 if let proxyAuth = proxy.authorization, case .Basic(let username, let password) = proxyAuth.scheme {
                     proxyUsername = username
                     proxyPassword = password
                 }
-                    
+                
                 let socksConnectHandler = SOCKSClientHandler(targetAddress: SOCKSAddress(self.key.connectionTarget), username: proxyUsername, password: proxyPassword)
                 let socksEventHandler = SOCKSEventsHandler(deadline: deadline)
                 
@@ -319,19 +345,22 @@ extension HTTPConnectionPool.ConnectionFactory {
                     try channel.pipeline.syncOperations.addHandler(socksConnectHandler)
                     try channel.pipeline.syncOperations.addHandler(socksEventHandler)
                 } catch {
-                    return channel.eventLoop.makeFailedFuture(error)
+                    return promise.fail(error)
                 }
                 
                 // The socksEstablishedFuture is set as soon as the SOCKSEventsHandler is in a
                 // pipeline. It is created in SOCKSEventsHandler's handlerAdded method.
-                return socksEventHandler.socksEstablishedFuture!.assumeIsolated().flatMap {
+                socksEventHandler.socksEstablishedFuture!.assumeIsolated().flatMap {
                     channel.pipeline.syncOperations.removeHandler(socksEventHandler).assumeIsolated().flatMap {
                         channel.pipeline.syncOperations.removeHandler(socksConnectHandler)
                     }.nonisolated()
                 }.flatMap {
                     self.setupTLSInProxyConnectionIfNeeded(channel, deadline: deadline, logger: logger)
-                }.nonisolated()
+                }.nonisolated().cascade(to: promise)
+            case .failure(let error):
+                promise.fail(error)
             }
+            
         }
     }
 
@@ -386,7 +415,7 @@ extension HTTPConnectionPool.ConnectionFactory {
                     let sync = channel.pipeline.syncOperations
                     let context = try sync.context(handlerType: TLSEventsHandler.self)
                     return sync.removeHandler(context: context).flatMapThrowing {
-                        try self.matchALPNToHTTPVersion(negotiated, channel: channel)
+                        try Self.matchALPNToHTTPVersion(negotiated, channel: channel)
                     }
                 } catch {
                     return channel.eventLoop.makeFailedFuture(error)
@@ -403,11 +432,17 @@ extension HTTPConnectionPool.ConnectionFactory {
     ) -> EventLoopFuture<NIOClientTCPBootstrapProtocol> {
         #if canImport(Network)
         if #available(OSX 10.14, iOS 12.0, tvOS 12.0, watchOS 6.0, *),
-            let tsBootstrap = NIOTSConnectionBootstrap(validatingGroup: eventLoop) {
-            let bootstrap = tsBootstrap
-                .withNWParameters(clientConfiguration.nwParametersConfigurator)
-                .channelOption(NIOTSChannelOptions.waitForActivity, value: self.clientConfiguration.networkFrameworkWaitForConnectivity)
-                .channelOption(NIOTSChannelOptions.multipathServiceType, value: self.clientConfiguration.enableMultipath ? .handover : .disabled)
+           let tsBootstrap = NIOTSConnectionBootstrap(validatingGroup: eventLoop) {
+           let bootstrap = tsBootstrap
+               .withNWParameters(clientConfiguration.nwParametersConfigurator)
+                .channelOption(
+                    NIOTSChannelOptions.waitForActivity,
+                    value: self.clientConfiguration.networkFrameworkWaitForConnectivity
+                )
+                .channelOption(
+                    NIOTSChannelOptions.multipathServiceType,
+                    value: self.clientConfiguration.enableMultipath ? .handover : .disabled
+                )
                 .connectTimeout(deadline - NIODeadline.now())
                 .channelInitializer { channel in
                     do {
@@ -445,8 +480,9 @@ extension HTTPConnectionPool.ConnectionFactory {
         connectionID: HTTPConnectionPool.Connection.ID,
         deadline: NIODeadline,
         eventLoop: EventLoop,
-        logger: Logger
-    ) -> EventLoopFuture<(Channel, String?)> {
+        logger: Logger,
+        promise: EventLoopPromise<NegotiatedProtocol>
+    ) {
         precondition(self.key.scheme.usesTLS, "Unexpected scheme")
         let bootstrapFuture = self.makeTLSBootstrap(
             requester: requester,
@@ -456,36 +492,43 @@ extension HTTPConnectionPool.ConnectionFactory {
             logger: logger
         )
 
-        var channelFuture = bootstrapFuture.flatMap { bootstrap -> EventLoopFuture<Channel> in
-            return bootstrap.connect(target: self.key.connectionTarget, resolver: clientConfiguration.dnsResolver?(), eventLoop: eventLoop)
-        }.flatMap { channel -> EventLoopFuture<(Channel, String?)> in
-            do {
-                // if the channel is closed before flatMap is executed, all ChannelHandler are removed
-                // and TLSEventsHandler is therefore not present either
-                let tlsEventHandler = try channel.pipeline.syncOperations.handler(type: TLSEventsHandler.self)
-
-                // The tlsEstablishedFuture is set as soon as the TLSEventsHandler is in a
-                // pipeline. It is created in TLSEventsHandler's handlerAdded method.
-                return tlsEventHandler.tlsEstablishedFuture!.assumeIsolated().flatMap { negotiated in
-                    channel.pipeline.syncOperations.removeHandler(tlsEventHandler).map { (channel, negotiated) }
-                }.nonisolated()
-            } catch {
-                assert(
-                    channel.isActive == false,
-                    "if the channel is still active then TLSEventsHandler must be present but got error \(error)"
-                )
-                return channel.eventLoop.makeFailedFuture(HTTPClientError.remoteConnectionClosed)
+        bootstrapFuture.whenComplete { result in
+            switch result {
+            case .success(let bootstrap):
+                bootstrap.connect(target: self.key.connectionTarget, resolver: clientConfiguration.dnsResolver?(), eventLoop: eventLoop)
+                    .flatMap {
+                        channel -> EventLoopFuture<(Channel, String?)> in
+                        do {
+                            // if the channel is closed before flatMap is executed, all ChannelHandler are removed
+                            // and TLSEventsHandler is therefore not present either
+                            let tlsEventHandler = try channel.pipeline.syncOperations.handler(type: TLSEventsHandler.self)
+                            
+                            // The tlsEstablishedFuture is set as soon as the TLSEventsHandler is in a
+                            // pipeline. It is created in TLSEventsHandler's handlerAdded method.
+                            return tlsEventHandler.tlsEstablishedFuture!.assumeIsolated().flatMap { negotiated in
+                                channel.pipeline.syncOperations.removeHandler(tlsEventHandler).map { (channel, negotiated) }
+                            }.nonisolated()
+                        } catch {
+                            assert(
+                                channel.isActive == false,
+                                "if the channel is still active then TLSEventsHandler must be present but got error \(error)"
+                            )
+                            return channel.eventLoop.makeFailedFuture(HTTPClientError.remoteConnectionClosed)
+                        }
+                    }.flatMapThrowing { channel, alpn in
+                        try Self.matchALPNToHTTPVersion(alpn, channel: channel)
+                    }.flatMapErrorThrowing { error in
+                        // If NIOTransportSecurity is used, we want to map NWErrors into NWPOsixErrors or NWTLSError.
+#if canImport(Network)
+                        throw HTTPClient.NWErrorHandler.translateError(error)
+#else
+                        throw error
+#endif
+                    }.cascade(to: promise)
+            case .failure(let error):
+                promise.fail(error)
             }
         }
-
-        #if canImport(Network)
-        // If NIOTransportSecurity is used, we want to map NWErrors into NWPOsixErrors or NWTLSError.
-        channelFuture = channelFuture.flatMapErrorThrowing { error in
-            throw HTTPClient.NWErrorHandler.translateError(error)
-        }
-        #endif
-
-        return channelFuture
     }
 
     private func makeTLSBootstrap<Requester: HTTPConnectionRequester>(
@@ -516,15 +559,24 @@ extension HTTPConnectionPool.ConnectionFactory {
             } else {
                 serverNameIndicatorOverride = key.serverNameIndicatorOverride
             }
-            let bootstrapFuture = tlsConfig.getNWProtocolTLSOptions(on: eventLoop, serverNameIndicatorOverride: serverNameIndicatorOverride).map {
+            let bootstrapFuture = tlsConfig.getNWProtocolTLSOptions(
+                on: eventLoop,
+                serverNameIndicatorOverride: serverNameIndicatorOverride
+            ).map {
                 options -> NIOClientTCPBootstrapProtocol in
 
                 let configureTlsOptions = self.clientConfiguration.configureTlsOptions
                 
                 return NIOTSConnectionBootstrap(group: eventLoop)  // validated above
                     .withNWParameters(clientConfiguration.nwParametersConfigurator)
-                    .channelOption(NIOTSChannelOptions.waitForActivity, value: self.clientConfiguration.networkFrameworkWaitForConnectivity)
-                    .channelOption(NIOTSChannelOptions.multipathServiceType, value: self.clientConfiguration.enableMultipath ? .handover : .disabled)
+                    .channelOption(
+                        NIOTSChannelOptions.waitForActivity,
+                        value: self.clientConfiguration.networkFrameworkWaitForConnectivity
+                    )
+                    .channelOption(
+                        NIOTSChannelOptions.multipathServiceType,
+                        value: self.clientConfiguration.enableMultipath ? .handover : .disabled
+                    )
                     .connectTimeout(deadline - NIODeadline.now())
                     .tlsOptions(options)
                     .channelInitializer { channel in
@@ -585,7 +637,7 @@ extension HTTPConnectionPool.ConnectionFactory {
         }
     }
 
-    private func matchALPNToHTTPVersion(_ negotiated: String?, channel: Channel) throws -> NegotiatedProtocol {
+    private static func matchALPNToHTTPVersion(_ negotiated: String?, channel: Channel) throws -> NegotiatedProtocol {
         switch negotiated {
         case .none, .some("http/1.1"):
             return .http1_1(channel)

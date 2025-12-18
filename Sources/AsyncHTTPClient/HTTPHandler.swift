@@ -13,18 +13,14 @@
 //===----------------------------------------------------------------------===//
 
 import Algorithms
+import Foundation
 import Logging
 import NIOConcurrencyHelpers
 import NIOCore
 import NIOHTTP1
 import NIOPosix
 import NIOSSL
-
-#if compiler(>=6.0)
-import Foundation
-#else
-@preconcurrency import Foundation
-#endif
+import Tracing
 
 extension HTTPClient {
     /// A request body.
@@ -929,6 +925,12 @@ extension HTTPClient {
         /// The `Logger` used by the `Task` for logging.
         public let logger: Logger  // We are okay to store the logger here because a Task is for only one request.
 
+        @available(macOS 10.15, iOS 13, tvOS 13, watchOS 6, *)
+        public var tracer: (any Tracer)? {
+            tracing.tracer
+        }
+        let tracing: TracingConfiguration
+
         let promise: EventLoopPromise<Response>
 
         struct State: Sendable {
@@ -958,10 +960,16 @@ extension HTTPClient {
             self.makeOrGetFileIOThreadPool()
         }
 
-        init(eventLoop: EventLoop, logger: Logger, makeOrGetFileIOThreadPool: @escaping @Sendable () -> NIOThreadPool) {
+        init(
+            eventLoop: EventLoop,
+            logger: Logger,
+            tracing: TracingConfiguration,
+            makeOrGetFileIOThreadPool: @escaping @Sendable () -> NIOThreadPool
+        ) {
             self.eventLoop = eventLoop
             self.promise = eventLoop.makePromise()
             self.logger = logger
+            self.tracing = tracing
             self.makeOrGetFileIOThreadPool = makeOrGetFileIOThreadPool
             self.state = NIOLockedValueBox(State(isCancelled: false, taskDelegate: nil))
         }
@@ -970,11 +978,13 @@ extension HTTPClient {
             eventLoop: EventLoop,
             error: Error,
             logger: Logger,
+            tracing: TracingConfiguration,
             makeOrGetFileIOThreadPool: @escaping @Sendable () -> NIOThreadPool
         ) -> Task<Response> {
             let task = self.init(
                 eventLoop: eventLoop,
                 logger: logger,
+                tracing: tracing,
                 makeOrGetFileIOThreadPool: makeOrGetFileIOThreadPool
             )
             task.promise.fail(error)

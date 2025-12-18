@@ -24,7 +24,8 @@ class HTTPConnectionPool_HTTP1ConnectionsTests: XCTestCase {
         var connections = HTTPConnectionPool.HTTP1Connections(
             maximumConcurrentConnections: 8,
             generator: .init(),
-            maximumConnectionUses: nil
+            maximumConnectionUses: nil,
+            preWarmedHTTP1ConnectionCount: 0
         )
 
         let el1 = elg.next()
@@ -60,7 +61,8 @@ class HTTPConnectionPool_HTTP1ConnectionsTests: XCTestCase {
         var connections = HTTPConnectionPool.HTTP1Connections(
             maximumConcurrentConnections: 8,
             generator: .init(),
-            maximumConnectionUses: nil
+            maximumConnectionUses: nil,
+            preWarmedHTTP1ConnectionCount: 0
         )
 
         let el1 = elg.next()
@@ -115,7 +117,8 @@ class HTTPConnectionPool_HTTP1ConnectionsTests: XCTestCase {
         var connections = HTTPConnectionPool.HTTP1Connections(
             maximumConcurrentConnections: 8,
             generator: .init(),
-            maximumConnectionUses: nil
+            maximumConnectionUses: nil,
+            preWarmedHTTP1ConnectionCount: 0
         )
 
         for el in [el1, el2, el3, el4] {
@@ -146,7 +149,8 @@ class HTTPConnectionPool_HTTP1ConnectionsTests: XCTestCase {
         var connections = HTTPConnectionPool.HTTP1Connections(
             maximumConcurrentConnections: 8,
             generator: .init(),
-            maximumConnectionUses: nil
+            maximumConnectionUses: nil,
+            preWarmedHTTP1ConnectionCount: 0
         )
 
         for el in [el1, el2, el3, el4] {
@@ -177,7 +181,8 @@ class HTTPConnectionPool_HTTP1ConnectionsTests: XCTestCase {
         var connections = HTTPConnectionPool.HTTP1Connections(
             maximumConcurrentConnections: 8,
             generator: .init(),
-            maximumConnectionUses: nil
+            maximumConnectionUses: nil,
+            preWarmedHTTP1ConnectionCount: 0
         )
 
         for el in [el1, el2, el3, el4] {
@@ -205,7 +210,8 @@ class HTTPConnectionPool_HTTP1ConnectionsTests: XCTestCase {
         var connections = HTTPConnectionPool.HTTP1Connections(
             maximumConcurrentConnections: 8,
             generator: .init(),
-            maximumConnectionUses: nil
+            maximumConnectionUses: nil,
+            preWarmedHTTP1ConnectionCount: 0
         )
 
         for el in [el1, el1, el1, el1, el2] {
@@ -256,7 +262,8 @@ class HTTPConnectionPool_HTTP1ConnectionsTests: XCTestCase {
         var connections = HTTPConnectionPool.HTTP1Connections(
             maximumConcurrentConnections: 8,
             generator: .init(),
-            maximumConnectionUses: nil
+            maximumConnectionUses: nil,
+            preWarmedHTTP1ConnectionCount: 0
         )
 
         let el1 = elg.next()
@@ -280,7 +287,8 @@ class HTTPConnectionPool_HTTP1ConnectionsTests: XCTestCase {
         var connections = HTTPConnectionPool.HTTP1Connections(
             maximumConcurrentConnections: 8,
             generator: .init(),
-            maximumConnectionUses: nil
+            maximumConnectionUses: nil,
+            preWarmedHTTP1ConnectionCount: 0
         )
 
         let el1 = elg.next()
@@ -303,7 +311,8 @@ class HTTPConnectionPool_HTTP1ConnectionsTests: XCTestCase {
         var connections = HTTPConnectionPool.HTTP1Connections(
             maximumConcurrentConnections: 8,
             generator: .init(),
-            maximumConnectionUses: nil
+            maximumConnectionUses: nil,
+            preWarmedHTTP1ConnectionCount: 0
         )
 
         let el1 = elg.next()
@@ -328,7 +337,8 @@ class HTTPConnectionPool_HTTP1ConnectionsTests: XCTestCase {
         var connections = HTTPConnectionPool.HTTP1Connections(
             maximumConcurrentConnections: 8,
             generator: .init(),
-            maximumConnectionUses: nil
+            maximumConnectionUses: nil,
+            preWarmedHTTP1ConnectionCount: 0
         )
 
         for el in [el1, el2, el3, el4] {
@@ -374,6 +384,8 @@ class HTTPConnectionPool_HTTP1ConnectionsTests: XCTestCase {
         XCTAssertEqual(connections.closeConnection(at: releaseIndex), lease)
         XCTAssertFalse(connections.isEmpty)
 
+        let backoffEL = connections.backoffNextConnectionAttempt(startingID)
+        XCTAssertIdentical(backoffEL, el2)
         guard let (failIndex, _) = connections.failConnection(startingID) else {
             return XCTFail("Expected that the connection is remembered")
         }
@@ -387,7 +399,8 @@ class HTTPConnectionPool_HTTP1ConnectionsTests: XCTestCase {
         var connections = HTTPConnectionPool.HTTP1Connections(
             maximumConcurrentConnections: 8,
             generator: generator,
-            maximumConnectionUses: nil
+            maximumConnectionUses: nil,
+            preWarmedHTTP1ConnectionCount: 0
         )
 
         let el1 = elg.next()
@@ -420,7 +433,8 @@ class HTTPConnectionPool_HTTP1ConnectionsTests: XCTestCase {
         var connections = HTTPConnectionPool.HTTP1Connections(
             maximumConcurrentConnections: 8,
             generator: generator,
-            maximumConnectionUses: nil
+            maximumConnectionUses: nil,
+            preWarmedHTTP1ConnectionCount: 0
         )
 
         let el1 = elg.next()
@@ -463,7 +477,8 @@ class HTTPConnectionPool_HTTP1ConnectionsTests: XCTestCase {
         var connections = HTTPConnectionPool.HTTP1Connections(
             maximumConcurrentConnections: 8,
             generator: generator,
-            maximumConnectionUses: nil
+            maximumConnectionUses: nil,
+            preWarmedHTTP1ConnectionCount: 0
         )
 
         let el1 = elg.next()
@@ -495,7 +510,8 @@ class HTTPConnectionPool_HTTP1ConnectionsTests: XCTestCase {
         var connections = HTTPConnectionPool.HTTP1Connections(
             maximumConcurrentConnections: 8,
             generator: generator,
-            maximumConnectionUses: nil
+            maximumConnectionUses: nil,
+            preWarmedHTTP1ConnectionCount: 0
         )
 
         let el1 = elg.next()
@@ -538,7 +554,8 @@ class HTTPConnectionPool_HTTP1ConnectionsTests: XCTestCase {
         var connections = HTTPConnectionPool.HTTP1Connections(
             maximumConcurrentConnections: 8,
             generator: generator,
-            maximumConnectionUses: nil
+            maximumConnectionUses: nil,
+            preWarmedHTTP1ConnectionCount: 0
         )
         let el1 = elg.next()
         let el2 = elg.next()
@@ -586,7 +603,8 @@ class HTTPConnectionPool_HTTP1ConnectionsTests: XCTestCase {
         var connections = HTTPConnectionPool.HTTP1Connections(
             maximumConcurrentConnections: 2,
             generator: generator,
-            maximumConnectionUses: nil
+            maximumConnectionUses: nil,
+            preWarmedHTTP1ConnectionCount: 0
         )
 
         let el1 = elg.next()
@@ -625,7 +643,8 @@ class HTTPConnectionPool_HTTP1ConnectionsTests: XCTestCase {
         var connections = HTTPConnectionPool.HTTP1Connections(
             maximumConcurrentConnections: 1,
             generator: generator,
-            maximumConnectionUses: nil
+            maximumConnectionUses: nil,
+            preWarmedHTTP1ConnectionCount: 0
         )
 
         let el1 = elg.next()
@@ -671,7 +690,8 @@ class HTTPConnectionPool_HTTP1ConnectionsTests: XCTestCase {
         var connections = HTTPConnectionPool.HTTP1Connections(
             maximumConcurrentConnections: 8,
             generator: generator,
-            maximumConnectionUses: nil
+            maximumConnectionUses: nil,
+            preWarmedHTTP1ConnectionCount: 0
         )
 
         let connID1 = connections.createNewConnection(on: el1)

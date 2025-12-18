@@ -15,6 +15,7 @@
 import Logging
 import NIOCore
 import NIOHTTP1
+import Tracing
 
 import struct Foundation.URL
 
@@ -36,12 +37,14 @@ extension HTTPClient {
         deadline: NIODeadline,
         logger: Logger? = nil
     ) async throws -> HTTPClientResponse {
-        try await self.executeAndFollowRedirectsIfNeeded(
-            request,
-            deadline: deadline,
-            logger: logger ?? Self.loggingDisabled,
-            redirectState: RedirectState(self.configuration.redirectConfiguration.mode, initialURL: request.url)
-        )
+        try await withRequestSpan(request) {
+            try await self.executeAndFollowRedirectsIfNeeded(
+                request,
+                deadline: deadline,
+                logger: logger ?? Self.loggingDisabled,
+                redirectState: RedirectState(self.configuration.redirectConfiguration.mode, initialURL: request.url)
+            )
+        }
     }
 }
 
@@ -89,7 +92,12 @@ extension HTTPClient {
 
         // this loop is there to follow potential redirects
         while true {
-            let preparedRequest = try HTTPClientRequest.Prepared(currentRequest, dnsOverride: configuration.dnsOverride)
+            let preparedRequest =
+                try HTTPClientRequest.Prepared(
+                    currentRequest,
+                    dnsOverride: configuration.dnsOverride,
+                    tracing: self.configuration.tracing
+                )
             let response = try await {
                 var response = try await self.executeCancellable(preparedRequest, deadline: deadline, logger: logger)
 
