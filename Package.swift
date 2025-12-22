@@ -45,6 +45,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.0.2"),
         .package(url: "https://github.com/apple/swift-algorithms.git", from: "1.0.0"),
         .package(url: "https://github.com/apple/swift-distributed-tracing.git", from: "1.3.0"),
+        .package(url: "https://github.com/apple/swift-service-context.git", from: "1.1.0")
     ],
     targets: [
         .target(
@@ -68,11 +69,13 @@ let package = Package(
                 .product(name: "NIOHTTPCompression", package: "swift-nio-extras"),
                 .product(name: "NIOSOCKS", package: "swift-nio-extras"),
                 .product(name: "NIOTransportServices", package: "swift-nio-transport-services"),
+                .product(name: "Logging", package: "swift-log"),
                 .product(name: "Atomics", package: "swift-atomics"),
                 .product(name: "Algorithms", package: "swift-algorithms"),
                 // Observability support
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "Tracing", package: "swift-distributed-tracing"),
+                .product(name: "ServiceContextModule", package: "swift-service-context"),
             ],
             swiftSettings: strictConcurrencySettings
         ),
