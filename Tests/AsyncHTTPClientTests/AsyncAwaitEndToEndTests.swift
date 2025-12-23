@@ -83,6 +83,29 @@ final class AsyncAwaitEndToEndTests: XCTestCase {
         }
     }
 
+    func testResolvedEndpointContainsServerSocketAddress() {
+        XCTAsyncTest {
+            let bin = HTTPBin(.http1_1(), bindTarget: .localhostIPv4RandomPort)
+            defer { XCTAssertNoThrow(try bin.shutdown()) }
+
+            let client = makeDefaultHTTPClient()
+            defer { XCTAssertNoThrow(try client.syncShutdown()) }
+
+            let logger = Logger(label: "HTTPClient", factory: StreamLogHandler.standardOutput(label:))
+            let request = HTTPClientRequest(url: "\(bin.baseURL)get")
+
+            guard
+                let response = await XCTAssertNoThrowWithResult(
+                    try await client.execute(request, deadline: .now() + .seconds(10), logger: logger)
+                )
+            else { return }
+
+            XCTAssertNotNil(response.resolvedEndpoint)
+            XCTAssertEqual(response.resolvedEndpoint?.port, bin.socketAddress.port)
+            XCTAssertEqual(response.resolvedEndpoint?.ipAddress, bin.socketAddress.ipAddress)
+        }
+    }
+
     func testSimplePost() {
         XCTAsyncTest {
             let bin = HTTPBin(.http2(compress: false))
