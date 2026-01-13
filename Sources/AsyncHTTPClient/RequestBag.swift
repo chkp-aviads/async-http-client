@@ -312,8 +312,8 @@ final class RequestBag<Delegate: HTTPClientResponseDelegate & Sendable>: Sendabl
         }
     }
 
-    private func succeedRequest0(_ buffer: CircularBuffer<ByteBuffer>?) {
-        let action = self.loopBoundState.value.state.succeedRequest(buffer)
+    private func receiveResponseEnd0(_ buffer: CircularBuffer<ByteBuffer>?) {
+        let action = self.loopBoundState.value.state.receiveResponseEnd(buffer)
 
         switch action {
         case .none:
@@ -554,12 +554,12 @@ extension RequestBag: HTTPExecutableRequest {
         }
     }
 
-    func succeedRequest(_ buffer: CircularBuffer<ByteBuffer>?) {
+    func receiveResponseEnd(_ buffer: CircularBuffer<ByteBuffer>?, trailers: HTTPHeaders?) {
         if self.task.eventLoop.inEventLoop {
-            self.succeedRequest0(buffer)
+            self.receiveResponseEnd0(buffer)
         } else {
             self.task.eventLoop.execute {
-                self.succeedRequest0(buffer)
+                self.receiveResponseEnd0(buffer)
             }
         }
     }
