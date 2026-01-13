@@ -266,8 +266,16 @@ final class HTTP2ClientRequestHandler: ChannelDuplexHandler {
 
     private func sendRequestHead(_ head: HTTPRequestHead, sendEnd: Bool, context: ChannelHandlerContext) {
         if sendEnd {
+            // If request has no content we should send the end stream flag as part of the http2 headers frame
+            // Originally we sent .head and .end http parts here
+            // These were converted to http2 headers frame and an empty data frame with end stream flag
+            // Some servers don't like an empty data frame and fail on us
+            // We therefore add the send end bool as part of the headers to pass that info
+            // In Swift-nio-http2 HTTP2ToHTTP1Codec we will remove it and add the end stream flag
+            // (thus the weird pseudo name to ensure it won't be sent)
+            var head = head
+            head.headers.add(name: ":http2EndStream", value: "true")
             context.write(self.wrapOutboundOut(.head(head)), promise: nil)
-            context.write(self.wrapOutboundOut(.end(nil)), promise: nil)
             context.flush()
         } else {
             context.writeAndFlush(self.wrapOutboundOut(.head(head)), promise: nil)

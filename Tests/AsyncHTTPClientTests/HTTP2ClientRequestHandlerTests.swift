@@ -56,9 +56,13 @@ class HTTP2ClientRequestHandlerTests: XCTestCase {
                 XCTAssertEqual($0.method, .GET)
                 XCTAssertEqual($0.uri, "/")
                 XCTAssertEqual($0.headers.first(name: "host"), "localhost")
+                XCTAssertEqual($0.headers.first(name: ":http2EndStream"), "true")
             }
         )
-        XCTAssertEqual(try embedded.readOutbound(as: HTTPClientRequestPart.self), .end(nil))
+        XCTAssertNoThrow {
+            let nextPart = try embedded.readOutbound(as: HTTPClientRequestPart.self)
+            XCTAssertEqual(nextPart, .none)
+        }
 
         let responseHead = HTTPResponseHead(
             version: .http1_1,
@@ -239,9 +243,17 @@ class HTTP2ClientRequestHandlerTests: XCTestCase {
                 XCTAssertEqual($0.method, .GET)
                 XCTAssertEqual($0.uri, "/")
                 XCTAssertEqual($0.headers.first(name: "host"), "localhost")
+                
+                // In http2 we send this pseudo header to end the stream on the HEADERS http2 frame
+                XCTAssertEqual($0.headers.first(name: ":http2EndStream"), "true")
             }
         )
-        XCTAssertNoThrow(try embedded.receiveEnd())
+        
+        // We should not get any other part besides .head when working with http2 since we closed the stream there
+        XCTAssertNoThrow {
+            let nextPart = try embedded.readOutbound(as: HTTPClientRequestPart.self)
+            XCTAssertEqual(nextPart, .none)
+        }
 
         let responseHead = HTTPResponseHead(
             version: .http1_1,
@@ -297,9 +309,13 @@ class HTTP2ClientRequestHandlerTests: XCTestCase {
                 XCTAssertEqual($0.method, .GET)
                 XCTAssertEqual($0.uri, "/")
                 XCTAssertEqual($0.headers.first(name: "host"), "localhost")
+                XCTAssertEqual($0.headers.first(name: ":http2EndStream"), "true")
             }
         )
-        XCTAssertNoThrow(try embedded.receiveEnd())
+        XCTAssertNoThrow {
+            let nextPart = try embedded.readOutbound(as: HTTPClientRequestPart.self)
+            XCTAssertEqual(nextPart, .none)
+        }
 
         let responseHead = HTTPResponseHead(
             version: .http1_1,
