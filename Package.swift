@@ -1,4 +1,4 @@
-// swift-tools-version:6.0
+// swift-tools-version:6.2
 //===----------------------------------------------------------------------===//
 //
 // This source file is part of the AsyncHTTPClient open source project
@@ -36,16 +36,18 @@ let package = Package(
         .library(name: "AsyncHTTPClient", targets: ["AsyncHTTPClient"])
     ],
     dependencies: [
-        .package(url: "https://github.com/chkp-aviads/swift-nio.git", from: "2.92.2"),
-        .package(url: "https://github.com/chkp-aviads/swift-nio-ssl.git", from: "2.36.1"),
-        .package(url: "https://github.com/chkp-aviads/swift-nio-http2.git", from: "1.39.2"),
-        .package(url: "https://github.com/chkp-aviads/swift-nio-extras.git", from: "1.31.4"),
-        .package(url: "https://github.com/chkp-aviads/swift-nio-transport-services.git", from: "1.26.1"),
+        .package(url: "https://github.com/chkp-aviads/swift-nio.git", from: "2.96.1"),
+        .package(url: "https://github.com/chkp-aviads/swift-nio-ssl.git", from: "2.36.4"),
+        .package(url: "https://github.com/chkp-aviads/swift-nio-http2.git", from: "1.40.2"),
+        .package(url: "https://github.com/chkp-aviads/swift-nio-extras.git", from: "1.33.1"),
+        .package(url: "https://github.com/chkp-aviads/swift-nio-transport-services.git", from: "1.26.3"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.7.1"),
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.0.2"),
         .package(url: "https://github.com/apple/swift-algorithms.git", from: "1.0.0"),
         .package(url: "https://github.com/apple/swift-distributed-tracing.git", from: "1.3.0"),
-        .package(url: "https://github.com/apple/swift-service-context.git", from: "1.1.0")
+        // Disable all traits to prevent linking Foundation
+        .package(url: "https://github.com/apple/swift-configuration.git", from: "1.0.0", traits: []),
+        .package(url: "https://github.com/apple/swift-service-context.git", from: "1.1.0"),
     ],
     targets: [
         .target(
@@ -68,9 +70,14 @@ let package = Package(
                 .product(name: "NIOSSL", package: "swift-nio-ssl"),
                 .product(name: "NIOHTTPCompression", package: "swift-nio-extras"),
                 .product(name: "NIOSOCKS", package: "swift-nio-extras"),
-                .product(name: "NIOTransportServices", package: "swift-nio-transport-services"),
+                .product(
+                    name: "NIOTransportServices",
+                    package: "swift-nio-transport-services",
+                    condition: .when(platforms: [.macOS, .iOS, .tvOS, .watchOS, .macCatalyst, .visionOS])
+                ),
                 .product(name: "Atomics", package: "swift-atomics"),
                 .product(name: "Algorithms", package: "swift-algorithms"),
+                .product(name: "Configuration", package: "swift-configuration"),
                 // Observability support
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "Tracing", package: "swift-distributed-tracing"),
@@ -93,10 +100,12 @@ let package = Package(
                 .product(name: "NIOSOCKS", package: "swift-nio-extras"),
                 .product(name: "Atomics", package: "swift-atomics"),
                 .product(name: "Algorithms", package: "swift-algorithms"),
+                .product(name: "Configuration", package: "swift-configuration"),
                 // Observability support
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "InMemoryLogging", package: "swift-log"),
                 .product(name: "Tracing", package: "swift-distributed-tracing"),
+                .product(name: "ServiceContextModule", package: "swift-service-context"),
                 .product(name: "InMemoryTracing", package: "swift-distributed-tracing"),
             ],
             resources: [

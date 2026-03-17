@@ -13,7 +13,6 @@
 //===----------------------------------------------------------------------===//
 
 import Algorithms
-import Foundation
 import Logging
 import NIOConcurrencyHelpers
 import NIOCore
@@ -21,6 +20,12 @@ import NIOHTTP1
 import NIOPosix
 import NIOSSL
 import Tracing
+
+#if canImport(FoundationEssentials)
+import FoundationEssentials
+#else
+import Foundation
+#endif
 
 extension HTTPClient {
     /// A request body.
@@ -536,7 +541,8 @@ public final class ResponseAccumulator: HTTPClientResponseDelegate {
     let requestMethod: HTTPMethod
     let requestHost: String
 
-    static let maxByteBufferSize = Int(UInt32.max)
+    // This is either UInt32.max, or Int.max on platforms where that value is smaller.
+    static let maxByteBufferSize = Int(exactly: UInt32.max) ?? Int(Int32.max)
 
     /// Maximum size in bytes of the HTTP response body that ``ResponseAccumulator`` will accept
     /// until it will abort the request and throw an ``ResponseTooBigError``.
@@ -884,7 +890,7 @@ extension URL {
     ///   - socketPath: The path to the unix domain socket to connect to.
     ///   - uri: The URI path and query that will be sent to the server.
     public init?(httpURLWithSocketPath socketPath: String, uri: String = "/") {
-        guard let host = socketPath.addingPercentEncoding(withAllowedCharacters: .urlHostAllowed) else { return nil }
+        let host = socketPath.addingPercentEncodingAllowingURLHost()
         var urlString: String
         if uri.hasPrefix("/") {
             urlString = "http+unix://\(host)\(uri)"
@@ -899,7 +905,7 @@ extension URL {
     ///   - socketPath: The path to the unix domain socket to connect to.
     ///   - uri: The URI path and query that will be sent to the server.
     public init?(httpsURLWithSocketPath socketPath: String, uri: String = "/") {
-        guard let host = socketPath.addingPercentEncoding(withAllowedCharacters: .urlHostAllowed) else { return nil }
+        let host = socketPath.addingPercentEncodingAllowingURLHost()
         var urlString: String
         if uri.hasPrefix("/") {
             urlString = "https+unix://\(host)\(uri)"
@@ -1080,7 +1086,8 @@ internal struct RedirectHandler<ResponseType: Sendable> {
                 headers: self.request.headers,
                 body: self.request.body,
                 to: redirectURL,
-                status: status
+                status: status,
+                config: self.redirectState.config
             )
 
             let newRequest = try HTTPClient.Request(

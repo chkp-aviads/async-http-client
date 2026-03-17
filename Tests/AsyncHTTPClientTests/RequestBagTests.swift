@@ -602,10 +602,13 @@ final class RequestBagTests: XCTestCase {
                     }.always { result in
                         XCTAssertTrue(firstWriteSuccess.withLockedValue { $0 })
 
-                        guard case .failure(let error) = result else {
-                            return XCTFail("Expected the second write to fail")
+                        switch result {
+                        case .success:
+                            // upload can now continue even after we have received the response end.
+                            break
+                        case .failure(let failure):
+                            XCTFail("Unexpected error: \(failure)")
                         }
-                        XCTAssertEqual(error as? HTTPClientError, .requestStreamCancelled)
                     }
                 }
             )
@@ -641,9 +644,11 @@ final class RequestBagTests: XCTestCase {
         bag.receiveResponseHead(.init(version: .http1_1, status: .movedPermanently))
         XCTAssertNoThrow(try XCTUnwrap(delegate.backpressurePromise).succeed(()))
         bag.receiveResponseEnd([], trailers: nil)
+        XCTAssertEqual(delegate.hitDidReceiveResponse, 0)
 
         // if we now write our second part of the response this should fail the backpressure promise
         writeSecondPartPromise.succeed(())
+        XCTAssertEqual(delegate.hitDidReceiveResponse, 1)
 
         XCTAssertEqual(delegate.receivedHead?.status, .movedPermanently)
         XCTAssertNoThrow(try bag.task.futureResult.wait())
@@ -726,7 +731,14 @@ final class RequestBagTests: XCTestCase {
                 redirectHandler: .init(
                     request: request,
                     redirectState: RedirectState(
-                        .follow(max: 5, allowCycles: false),
+                        .follow(
+                            .init(
+                                max: 5,
+                                allowCycles: false,
+                                retainHTTPMethodAndBodyOn301: false,
+                                retainHTTPMethodAndBodyOn302: false
+                            )
+                        ),
                         initialURL: request.url.absoluteString
                     )!,
                     execute: { request, _ in
@@ -814,7 +826,14 @@ final class RequestBagTests: XCTestCase {
                 redirectHandler: .init(
                     request: request,
                     redirectState: RedirectState(
-                        .follow(max: 5, allowCycles: false),
+                        .follow(
+                            .init(
+                                max: 5,
+                                allowCycles: false,
+                                retainHTTPMethodAndBodyOn301: false,
+                                retainHTTPMethodAndBodyOn302: false
+                            )
+                        ),
                         initialURL: request.url.absoluteString
                     )!,
                     execute: { request, _ in
@@ -876,7 +895,14 @@ final class RequestBagTests: XCTestCase {
                 redirectHandler: .init(
                     request: request,
                     redirectState: RedirectState(
-                        .follow(max: 5, allowCycles: false),
+                        .follow(
+                            .init(
+                                max: 5,
+                                allowCycles: false,
+                                retainHTTPMethodAndBodyOn301: false,
+                                retainHTTPMethodAndBodyOn302: false
+                            )
+                        ),
                         initialURL: request.url.absoluteString
                     )!,
                     execute: { request, _ in

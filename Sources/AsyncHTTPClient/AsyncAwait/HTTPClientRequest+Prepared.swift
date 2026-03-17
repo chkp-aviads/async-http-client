@@ -18,7 +18,11 @@ import NIOHTTP1
 import NIOSSL
 import ServiceContextModule
 
+#if canImport(FoundationEssentials)
+import struct FoundationEssentials.URL
+#else
 import struct Foundation.URL
+#endif
 
 @available(macOS 10.15, iOS 13.0, watchOS 6.0, tvOS 13.0, *)
 extension HTTPClientRequest {
@@ -124,7 +128,8 @@ extension HTTPClientRequest {
     func followingRedirect(
         from originalURL: URL,
         to redirectURL: URL,
-        status: HTTPResponseStatus
+        status: HTTPResponseStatus,
+        config: HTTPClient.Configuration.RedirectConfiguration.FollowConfiguration
     ) -> HTTPClientRequest {
         let (method, headers, body) = transformRequestForRedirect(
             from: originalURL,
@@ -132,7 +137,8 @@ extension HTTPClientRequest {
             headers: self.headers,
             body: self.body,
             to: redirectURL,
-            status: status
+            status: status,
+            config: config
         )
         var newRequest = HTTPClientRequest(url: redirectURL.absoluteString)
         newRequest.method = method
