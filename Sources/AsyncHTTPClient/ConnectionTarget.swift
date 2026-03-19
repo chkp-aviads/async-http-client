@@ -39,6 +39,15 @@ public enum ConnectionTarget: Equatable, Hashable, Sendable {
             self = .domain(name: remoteHost, port: port)
         }
     }
+    
+    func hasDomain(_ domain: String) -> Bool {
+        switch self {
+        case .domain(let name, _):
+            return name == domain || name.hasSuffix(".\(domain)")
+        default:
+            return false
+        }
+    }
 }
 
 public extension ConnectionTarget {

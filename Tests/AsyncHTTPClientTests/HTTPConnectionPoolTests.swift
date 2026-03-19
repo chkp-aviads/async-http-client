@@ -199,6 +199,36 @@ class HTTPConnectionPoolTests: XCTestCase {
         }
     }
 
+    func testHttp1OnlyDomainsForceHTTP1WhenHTTPVersionIsAutomatic() throws {
+        let eventLoopGroup = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { XCTAssertNoThrow(try eventLoopGroup.syncShutdownGracefully()) }
+
+        let eventLoop = eventLoopGroup.next()
+        let poolDelegate = TestDelegate(eventLoop: eventLoop)
+
+        var configuration = HTTPClient.Configuration()
+        configuration.httpVersion = .automatic
+        configuration.http1OnlyDomains = ["example.com"]
+
+        let request = try HTTPClient.Request(url: "https://www.example.com")
+        let pool = HTTPConnectionPool(
+            eventLoopGroup: eventLoopGroup,
+            sslContextCache: .init(),
+            tlsConfiguration: .none,
+            clientConfiguration: configuration,
+            key: .init(request),
+            delegate: poolDelegate,
+            idGenerator: .init(),
+            backgroundActivityLogger: .init(label: "test")
+        )
+        defer {
+            pool.shutdown()
+            XCTAssertNoThrow(try poolDelegate.future.wait())
+        }
+
+        XCTAssertEqual(pool.clientConfiguration.httpVersion, .http1Only)
+    }
+
     func testConnectionPoolGrowsToMaxConcurrentConnections() {
         let httpBin = HTTPBin()
         let maxConnections = 8

@@ -42,7 +42,7 @@ final class HTTPConnectionPool:
 
     private let eventLoopGroup: EventLoopGroup
     private let connectionFactory: ConnectionFactory
-    private let clientConfiguration: HTTPClient.Configuration
+    let clientConfiguration: HTTPClient.Configuration
     private let idleConnectionTimeout: TimeAmount
 
     let delegate: HTTPConnectionPoolDelegate
@@ -57,6 +57,14 @@ final class HTTPConnectionPool:
         idGenerator: Connection.ID.Generator,
         backgroundActivityLogger logger: Logger
     ) {
+        // Force .http1Only if connection target matches http1OnlyDomains
+        var clientConfiguration = clientConfiguration
+        if clientConfiguration.httpVersion != .http1Only,
+           let http1Domains = clientConfiguration.http1OnlyDomains, !http1Domains.isEmpty,
+           http1Domains.contains(where: { key.connectionTarget.hasDomain($0) }) {
+            clientConfiguration.httpVersion = .http1Only
+        }
+        
         self.eventLoopGroup = eventLoopGroup
         self.connectionFactory = ConnectionFactory(
             key: key,
