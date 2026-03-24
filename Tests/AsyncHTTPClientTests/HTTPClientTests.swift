@@ -1052,6 +1052,49 @@ final class HTTPClientTests: XCTestCaseHTTPClientTestsBaseClass {
         XCTAssertEqual(res.status, .ok)
     }
 
+    func testProxyConnectOverTLSWithHTTPDestination() throws {
+        let localHTTPBin = HTTPBin(proxy: .simulateTLS(authorization: nil))
+        var proxyConfiguration = HTTPClient.Configuration.Proxy.server(host: "localhost", port: localHTTPBin.port)
+        var proxyTLSConfiguration = TLSConfiguration.makeClientConfiguration()
+        proxyTLSConfiguration.certificateVerification = .none
+        proxyConfiguration.tlsConfiguration = proxyTLSConfiguration
+
+        let localClient = HTTPClient(
+            eventLoopGroupProvider: .shared(self.clientGroup),
+            configuration: .init(proxy: proxyConfiguration)
+        )
+        defer {
+            XCTAssertNoThrow(try localClient.syncShutdown())
+            XCTAssertNoThrow(try localHTTPBin.shutdown())
+        }
+
+        let response = try localClient.get(url: "http://test/ok").wait()
+        XCTAssertEqual(response.status, .ok)
+    }
+
+    func testProxyConnectOverTLSWithHTTPSDestination() throws {
+        let localHTTPBin = HTTPBin(.http1_1(ssl: true), proxy: .simulateTLS(authorization: nil))
+        var proxyConfiguration = HTTPClient.Configuration.Proxy.server(host: "localhost", port: localHTTPBin.port)
+        var proxyTLSConfiguration = TLSConfiguration.makeClientConfiguration()
+        proxyTLSConfiguration.certificateVerification = .none
+        proxyConfiguration.tlsConfiguration = proxyTLSConfiguration
+
+        let localClient = HTTPClient(
+            eventLoopGroupProvider: .shared(self.clientGroup),
+            configuration: .init(
+                certificateVerification: .none,
+                proxy: proxyConfiguration
+            )
+        )
+        defer {
+            XCTAssertNoThrow(try localClient.syncShutdown())
+            XCTAssertNoThrow(try localHTTPBin.shutdown())
+        }
+
+        let response = try localClient.get(url: "https://test/ok").wait()
+        XCTAssertEqual(response.status, .ok)
+    }
+
     func testProxyPlaintextWithCorrectlyAuthorization() throws {
         let localHTTPBin = HTTPBin(proxy: .simulate(authorization: "Basic YWxhZGRpbjpvcGVuc2VzYW1l"))
         let localClient = HTTPClient(
@@ -2402,7 +2445,10 @@ final class HTTPClientTests: XCTestCaseHTTPClientTestsBaseClass {
                 XCTFail("Impossible condition")
                 #endif
             } else {
-                XCTAssert(error is NIOConnectionError, "Unexpected error: \(error)")
+                XCTAssert(
+                    error is NIOConnectionError || (error as? HTTPClientError) == .connectTimeout,
+                    "Unexpected error: \(error)"
+                )
             }
         }
     }

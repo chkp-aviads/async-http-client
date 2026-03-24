@@ -435,6 +435,10 @@ where
     enum Proxy {
         case none
         case simulate(authorization: String?)
+        case simulateTLS(
+            authorization: String?,
+            tlsConfiguration: TLSConfiguration = TestTLS.serverConfiguration
+        )
     }
 
     let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
@@ -539,7 +543,22 @@ where
                     }
 
                     // if we need to simulate a proxy, we need to add those handlers first
-                    if case .simulate(authorization: let expectedAuthorization) = proxy {
+                    switch proxy {
+                    case .none:
+                        break
+                    case .simulate(authorization: let expectedAuthorization):
+                        try self.syncAddHTTPProxyHandlers(
+                            to: channel,
+                            connectionID: connectionID,
+                            expectedAuthorization: expectedAuthorization
+                        )
+                        return channel.eventLoop.makeSucceededVoidFuture()
+                    case .simulateTLS(
+                        authorization: let expectedAuthorization,
+                        tlsConfiguration: let tlsConfiguration
+                    ):
+                        let sslContext = try NIOSSLContext(configuration: tlsConfiguration)
+                        try channel.pipeline.syncOperations.addHandler(NIOSSLServerHandler(context: sslContext))
                         try self.syncAddHTTPProxyHandlers(
                             to: channel,
                             connectionID: connectionID,

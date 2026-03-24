@@ -56,6 +56,9 @@ protocol HTTPConnectionRequester: Sendable {
 }
 
 extension HTTPConnectionPool.ConnectionFactory {
+    private static let proxyTLSHandlerName = "ahc-proxy-tls-handler"
+    private static let originTLSHandlerName = "ahc-origin-tls-handler"
+
     func makeConnection<Requester: HTTPConnectionRequester>(
         for requester: Requester,
         connectionID: HTTPConnectionPool.Connection.ID,
@@ -263,9 +266,9 @@ extension HTTPConnectionPool.ConnectionFactory {
         logger: Logger,
         promise: EventLoopPromise<NegotiatedProtocol>
     ) {
-        // A proxy connection starts with a plain text connection to the proxy server. After
-        // the connection has been established with the proxy server, the connection might be
-        // upgraded to TLS before we send our first request.
+        // A proxy connection starts with a TCP connection to the proxy server.
+        // Depending on configuration, we may establish TLS to the proxy first,
+        // then perform CONNECT, and finally establish TLS to the origin in the tunnel.
         self.makePlainBootstrap(
             requester: requester,
             connectionID: connectionID,
@@ -273,6 +276,13 @@ extension HTTPConnectionPool.ConnectionFactory {
             eventLoop: eventLoop
         ).flatMap { bootstrap in
             bootstrap.connect(host: proxy.host, port: proxy.port)
+        }.flatMap { channel in
+            self.setupProxyTLSIfNeeded(
+                channel,
+                proxy: proxy,
+                deadline: deadline,
+                logger: logger
+            ).map { channel }
         }.whenComplete { result in
             switch result {
             case .success(let channel):
@@ -301,7 +311,7 @@ extension HTTPConnectionPool.ConnectionFactory {
                         }.nonisolated()
                     }.nonisolated()
                 }.flatMap {
-                    self.setupTLSInProxyConnectionIfNeeded(channel, deadline: deadline, logger: logger)
+                    self.setupOriginTLSInProxyConnectionIfNeeded(channel, deadline: deadline, logger: logger)
                 }.nonisolated().cascade(to: promise)
             case .failure(let error):
                 promise.fail(error)
@@ -355,7 +365,7 @@ extension HTTPConnectionPool.ConnectionFactory {
                         channel.pipeline.syncOperations.removeHandler(socksConnectHandler)
                     }.nonisolated()
                 }.flatMap {
-                    self.setupTLSInProxyConnectionIfNeeded(channel, deadline: deadline, logger: logger)
+                    self.setupOriginTLSInProxyConnectionIfNeeded(channel, deadline: deadline, logger: logger)
                 }.nonisolated().cascade(to: promise)
             case .failure(let error):
                 promise.fail(error)
@@ -364,7 +374,32 @@ extension HTTPConnectionPool.ConnectionFactory {
         }
     }
 
-    private func setupTLSInProxyConnectionIfNeeded(
+    private func setupProxyTLSIfNeeded(
+        _ channel: Channel,
+        proxy: HTTPClient.Configuration.Proxy,
+        deadline: NIODeadline,
+        logger: Logger
+    ) -> EventLoopFuture<Void> {
+        guard var tlsConfiguration = proxy.tlsConfiguration else {
+            return channel.eventLoop.makeSucceededVoidFuture()
+        }
+
+        // CONNECT is implemented with HTTP/1.1 in this channel setup path.
+        tlsConfiguration.applicationProtocols = ["http/1.1"]
+
+        let serverHostname = proxy.host.isIPAddress ? nil : proxy.host
+        return Self.performTLSHandshake(
+            on: channel,
+            tlsConfiguration: tlsConfiguration,
+            serverHostname: serverHostname,
+            deadline: deadline,
+            logger: logger,
+            sslContextCache: self.sslContextCache,
+            sslHandlerName: Self.proxyTLSHandlerName
+        ).map { _ in () }
+    }
+
+    private func setupOriginTLSInProxyConnectionIfNeeded(
         _ channel: Channel,
         deadline: NIODeadline,
         logger: Logger
@@ -388,38 +423,62 @@ extension HTTPConnectionPool.ConnectionFactory {
             }
 
             let sslServerHostname = self.key.serverNameIndicator
-            let sslContextFuture = self.sslContextCache.sslContext(
+            return Self.performTLSHandshake(
+                on: channel,
                 tlsConfiguration: tlsConfig,
-                eventLoop: channel.eventLoop,
-                logger: logger
+                serverHostname: sslServerHostname,
+                deadline: deadline,
+                logger: logger,
+                sslContextCache: self.sslContextCache,
+                sslHandlerName: Self.originTLSHandlerName
+            ).flatMapThrowing { negotiated in
+                try Self.matchALPNToHTTPVersion(negotiated, channel: channel)
+            }
+        }
+    }
+
+    private static func performTLSHandshake(
+        on channel: Channel,
+        tlsConfiguration: TLSConfiguration,
+        serverHostname: String?,
+        deadline: NIODeadline,
+        logger: Logger,
+        sslContextCache: SSLContextCache,
+        sslHandlerName: String
+    ) -> EventLoopFuture<String?> {
+        do {
+            _ = try channel.pipeline.syncOperations.context(name: sslHandlerName)
+            return channel.eventLoop.makeFailedFuture(
+                HTTPClientError.internalStateFailure(file: #fileID, line: #line)
             )
+        } catch {
+            // expected when this TLS phase has not been installed yet
+        }
 
-            return sslContextFuture.flatMap { sslContext -> EventLoopFuture<String?> in
-                do {
-                    let sslHandler = try NIOSSLClientHandler(
-                        context: sslContext,
-                        serverHostname: sslServerHostname
-                    )
-                    try channel.pipeline.syncOperations.addHandler(sslHandler)
-                    let tlsEventHandler = TLSEventsHandler(deadline: deadline)
-                    try channel.pipeline.syncOperations.addHandler(tlsEventHandler)
+        let sslContextFuture = sslContextCache.sslContext(
+            tlsConfiguration: tlsConfiguration,
+            eventLoop: channel.eventLoop,
+            logger: logger
+        )
 
-                    // The tlsEstablishedFuture is set as soon as the TLSEventsHandler is in a
-                    // pipeline. It is created in TLSEventsHandler's handlerAdded method.
-                    return tlsEventHandler.tlsEstablishedFuture!
-                } catch {
-                    return channel.eventLoop.makeFailedFuture(error)
-                }
-            }.flatMap { negotiated -> EventLoopFuture<NegotiatedProtocol> in
-                do {
-                    let sync = channel.pipeline.syncOperations
-                    let context = try sync.context(handlerType: TLSEventsHandler.self)
-                    return sync.removeHandler(context: context).flatMapThrowing {
-                        try Self.matchALPNToHTTPVersion(negotiated, channel: channel)
-                    }
-                } catch {
-                    return channel.eventLoop.makeFailedFuture(error)
-                }
+        return sslContextFuture.flatMap { sslContext -> EventLoopFuture<String?> in
+            do {
+                let sslHandler = try NIOSSLClientHandler(
+                    context: sslContext,
+                    serverHostname: serverHostname
+                )
+                let tlsEventHandler = TLSEventsHandler(deadline: deadline)
+
+                try channel.pipeline.syncOperations.addHandler(sslHandler, name: sslHandlerName)
+                try channel.pipeline.syncOperations.addHandler(tlsEventHandler)
+
+                // The tlsEstablishedFuture is set as soon as the TLSEventsHandler is in a
+                // pipeline. It is created in TLSEventsHandler's handlerAdded method.
+                return tlsEventHandler.tlsEstablishedFuture!.assumeIsolated().flatMap { negotiated in
+                    channel.pipeline.syncOperations.removeHandler(tlsEventHandler).map { negotiated }
+                }.nonisolated()
+            } catch {
+                return channel.eventLoop.makeFailedFuture(error)
             }
         }
     }

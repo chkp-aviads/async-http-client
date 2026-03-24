@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 import NIOCore
+import NIOSSL
 
 extension HTTPClient.Configuration {
     /// Proxy server configuration
@@ -39,6 +40,21 @@ extension HTTPClient.Configuration {
         public var type: ProxyType
         /// Specifies Proxy server authorization.
         public var authorization: HTTPClient.Authorization?
+        
+        /// TLS configuration for the proxy server
+        internal var internalTlsConfiguration: BestEffortHashableTLSConfiguration? = nil
+        public var tlsConfiguration : TLSConfiguration? {
+            get {
+                internalTlsConfiguration?.base
+            }
+            set {
+                if let newValue {
+                    internalTlsConfiguration = .init(wrapping: newValue)
+                } else {
+                    internalTlsConfiguration = nil
+                }
+            }
+        }
 
         /// Create a HTTP proxy.
         ///
