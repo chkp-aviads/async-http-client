@@ -291,6 +291,7 @@ extension HTTPConnectionPool.ConnectionFactory {
                 let proxyHandler = HTTP1ProxyConnectHandler(
                     target: self.key.connectionTarget,
                     proxyAuthorization: proxy.authorization,
+                    headers: proxy.connectHeaders,
                     deadline: deadline
                 )
                 

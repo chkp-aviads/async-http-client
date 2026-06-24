@@ -38,6 +38,7 @@ public final class HTTP1ProxyConnectHandler: ChannelDuplexHandler, RemovableChan
     private let targetHost: String
     private let targetPort: Int
     private let proxyAuthorization: HTTPClient.Authorization?
+    private let headers: HTTPHeaders
     private let deadline: NIODeadline
 
     private var proxyEstablishedPromise: EventLoopPromise<Void>?
@@ -48,6 +49,7 @@ public final class HTTP1ProxyConnectHandler: ChannelDuplexHandler, RemovableChan
     public convenience init(
         target: ConnectionTarget,
         proxyAuthorization: HTTPClient.Authorization?,
+        headers: HTTPHeaders = [:],
         deadline: NIODeadline
     ) {
         let targetHost: String
@@ -66,6 +68,7 @@ public final class HTTP1ProxyConnectHandler: ChannelDuplexHandler, RemovableChan
             targetHost: targetHost,
             targetPort: targetPort,
             proxyAuthorization: proxyAuthorization,
+            headers: headers,
             deadline: deadline
         )
     }
@@ -74,11 +77,13 @@ public final class HTTP1ProxyConnectHandler: ChannelDuplexHandler, RemovableChan
         targetHost: String,
         targetPort: Int,
         proxyAuthorization: HTTPClient.Authorization?,
+        headers: HTTPHeaders = [:],
         deadline: NIODeadline
     ) {
         self.targetHost = targetHost
         self.targetPort = targetPort
         self.proxyAuthorization = proxyAuthorization
+        self.headers = headers
         self.deadline = deadline
     }
 
@@ -157,6 +162,9 @@ public final class HTTP1ProxyConnectHandler: ChannelDuplexHandler, RemovableChan
             method: .CONNECT,
             uri: "\(self.targetHost):\(self.targetPort)"
         )
+        // Apply any user-provided headers first, then set the headers that are
+        // mandatory for the proxy handshake so they always take precedence.
+        head.headers.add(contentsOf: self.headers)
         head.headers.replaceOrAdd(name: "host", value: "\(self.targetHost)")
         if let authorization = self.proxyAuthorization {
             head.headers.replaceOrAdd(name: "proxy-authorization", value: authorization.headerValue)

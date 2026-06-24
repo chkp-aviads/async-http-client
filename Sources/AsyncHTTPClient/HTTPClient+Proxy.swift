@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 import NIOCore
+import NIOHTTP1
 import NIOSSL
 
 extension HTTPClient.Configuration {
@@ -40,7 +41,18 @@ extension HTTPClient.Configuration {
         public var type: ProxyType
         /// Specifies Proxy server authorization.
         public var authorization: HTTPClient.Authorization?
-        
+
+        /// Additional HTTP headers to send on the `CONNECT` request to an HTTP proxy.
+        ///
+        /// This can be used to set headers such as `User-Agent` on the proxy `CONNECT`
+        /// request. These headers are only sent when ``type`` is `.http`; they are
+        /// ignored for SOCKS proxies.
+        ///
+        /// The `host` and `proxy-authorization` headers are always set by the client
+        /// based on the connection target and ``authorization``, and take precedence
+        /// over any value provided here.
+        public var connectHeaders: HTTPHeaders = [:]
+
         /// TLS configuration for the proxy server
         internal var internalTlsConfiguration: BestEffortHashableTLSConfiguration? = nil
         public var tlsConfiguration : TLSConfiguration? {
@@ -62,8 +74,16 @@ extension HTTPClient.Configuration {
         ///     - host: proxy server host.
         ///     - port: proxy server port.
         ///     - authorization: proxy server authorization.
-        public static func server(host: String, port: Int, authorization: HTTPClient.Authorization? = nil) -> Proxy {
-            .init(host: host, port: port, type: .http, authorization: authorization)
+        ///     - connectHeaders: additional HTTP headers to send on the proxy `CONNECT` request.
+        public static func server(
+            host: String,
+            port: Int,
+            authorization: HTTPClient.Authorization? = nil,
+            connectHeaders: HTTPHeaders = [:]
+        ) -> Proxy {
+            var proxy = Proxy(host: host, port: port, type: .http, authorization: authorization)
+            proxy.connectHeaders = connectHeaders
+            return proxy
         }
 
         /// Create a SOCKSv5 proxy.
@@ -72,6 +92,29 @@ extension HTTPClient.Configuration {
         /// - returns: A new instance of `Proxy` configured to connect to a `SOCKSv5` server.
         public static func socksServer(host: String, port: Int = 1080, authorization: HTTPClient.Authorization? = nil) -> Proxy {
             .init(host: host, port: port, type: .socks, authorization: authorization)
+        }
+
+        // `HTTPHeaders` is `Equatable` but not `Hashable`, so we cannot rely on the
+        // compiler-synthesized conformance and implement `Hashable` manually instead.
+        public func hash(into hasher: inout Hasher) {
+            hasher.combine(self.host)
+            hasher.combine(self.port)
+            hasher.combine(self.type)
+            hasher.combine(self.authorization)
+            hasher.combine(self.internalTlsConfiguration)
+            for (name, value) in self.connectHeaders {
+                hasher.combine(name)
+                hasher.combine(value)
+            }
+        }
+
+        public static func == (lhs: Proxy, rhs: Proxy) -> Bool {
+            lhs.host == rhs.host
+                && lhs.port == rhs.port
+                && lhs.type == rhs.type
+                && lhs.authorization == rhs.authorization
+                && lhs.internalTlsConfiguration == rhs.internalTlsConfiguration
+                && lhs.connectHeaders == rhs.connectHeaders
         }
     }
 }

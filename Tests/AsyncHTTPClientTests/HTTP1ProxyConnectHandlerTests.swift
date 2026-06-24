@@ -89,6 +89,87 @@ class HTTP1ProxyConnectHandlerTests: XCTestCase {
         XCTAssertNoThrow(try XCTUnwrap(proxyConnectHandler.proxyEstablishedFuture).wait())
     }
 
+    func testProxyConnectSendsCustomHeaders() {
+        let embedded = EmbeddedChannel()
+        defer { XCTAssertNoThrow(try embedded.finish(acceptAlreadyClosed: false)) }
+
+        let socketAddress = try! SocketAddress.makeAddressResolvingHost("localhost", port: 0)
+        XCTAssertNoThrow(try embedded.connect(to: socketAddress).wait())
+
+        var customHeaders = HTTPHeaders()
+        customHeaders.add(name: "User-Agent", value: "async-http-client/1.0")
+        customHeaders.add(name: "X-Custom-Header", value: "custom-value")
+
+        let proxyConnectHandler = HTTP1ProxyConnectHandler(
+            targetHost: "swift.org",
+            targetPort: 443,
+            proxyAuthorization: .basic(username: "abc123", password: "abc123"),
+            headers: customHeaders,
+            deadline: .now() + .seconds(10)
+        )
+
+        XCTAssertNoThrow(try embedded.pipeline.syncOperations.addHandler(proxyConnectHandler))
+
+        var maybeHead: HTTPClientRequestPart?
+        XCTAssertNoThrow(maybeHead = try embedded.readOutbound(as: HTTPClientRequestPart.self))
+        guard case .some(.head(let head)) = maybeHead else {
+            return XCTFail("Expected the proxy connect handler to first send a http head part")
+        }
+
+        XCTAssertEqual(head.method, .CONNECT)
+        XCTAssertEqual(head.uri, "swift.org:443")
+        XCTAssertEqual(head.headers["host"].first, "swift.org")
+        XCTAssertEqual(head.headers["proxy-authorization"].first, "Basic YWJjMTIzOmFiYzEyMw==")
+        XCTAssertEqual(head.headers["user-agent"].first, "async-http-client/1.0")
+        XCTAssertEqual(head.headers["x-custom-header"].first, "custom-value")
+        XCTAssertEqual(try embedded.readOutbound(as: HTTPClientRequestPart.self), .end(nil))
+
+        let responseHead = HTTPResponseHead(version: .http1_1, status: .ok)
+        XCTAssertNoThrow(try embedded.writeInbound(HTTPClientResponsePart.head(responseHead)))
+        XCTAssertNoThrow(try embedded.writeInbound(HTTPClientResponsePart.end(nil)))
+
+        XCTAssertNoThrow(try XCTUnwrap(proxyConnectHandler.proxyEstablishedFuture).wait())
+    }
+
+    func testProxyConnectCustomHeadersDoNotOverrideMandatoryHeaders() {
+        let embedded = EmbeddedChannel()
+        defer { XCTAssertNoThrow(try embedded.finish(acceptAlreadyClosed: false)) }
+
+        let socketAddress = try! SocketAddress.makeAddressResolvingHost("localhost", port: 0)
+        XCTAssertNoThrow(try embedded.connect(to: socketAddress).wait())
+
+        // Custom headers attempting to override host/proxy-authorization must not win.
+        var customHeaders = HTTPHeaders()
+        customHeaders.add(name: "Host", value: "evil.example.com")
+        customHeaders.add(name: "Proxy-Authorization", value: "Basic spoofed")
+
+        let proxyConnectHandler = HTTP1ProxyConnectHandler(
+            targetHost: "swift.org",
+            targetPort: 443,
+            proxyAuthorization: .basic(username: "abc123", password: "abc123"),
+            headers: customHeaders,
+            deadline: .now() + .seconds(10)
+        )
+
+        XCTAssertNoThrow(try embedded.pipeline.syncOperations.addHandler(proxyConnectHandler))
+
+        var maybeHead: HTTPClientRequestPart?
+        XCTAssertNoThrow(maybeHead = try embedded.readOutbound(as: HTTPClientRequestPart.self))
+        guard case .some(.head(let head)) = maybeHead else {
+            return XCTFail("Expected the proxy connect handler to first send a http head part")
+        }
+
+        XCTAssertEqual(head.headers["host"], ["swift.org"])
+        XCTAssertEqual(head.headers["proxy-authorization"], ["Basic YWJjMTIzOmFiYzEyMw=="])
+        XCTAssertEqual(try embedded.readOutbound(as: HTTPClientRequestPart.self), .end(nil))
+
+        let responseHead = HTTPResponseHead(version: .http1_1, status: .ok)
+        XCTAssertNoThrow(try embedded.writeInbound(HTTPClientResponsePart.head(responseHead)))
+        XCTAssertNoThrow(try embedded.writeInbound(HTTPClientResponsePart.end(nil)))
+
+        XCTAssertNoThrow(try XCTUnwrap(proxyConnectHandler.proxyEstablishedFuture).wait())
+    }
+
     func testProxyConnectWithoutAuthorizationFailure500() {
         let embedded = EmbeddedChannel()
 
