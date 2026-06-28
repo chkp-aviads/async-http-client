@@ -77,7 +77,7 @@ extension HTTPClientRequest.Prepared {
 
         self.init(
             url: url,
-            poolKey: .init(url: deconstructedURL, tlsConfiguration: request.tlsConfiguration, dnsOverride: dnsOverride),
+            poolKey: .init(url: deconstructedURL, tlsConfiguration: request.tlsConfiguration, dnsOverride: dnsOverride, proxy: request.proxy),
             requestFramingMetadata: metadata,
             head: .init(
                 version: .http1_1,

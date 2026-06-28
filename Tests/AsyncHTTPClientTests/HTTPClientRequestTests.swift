@@ -717,6 +717,36 @@ class HTTPClientRequestTests: XCTestCase {
 
         XCTAssertEqual(body, expectedChunks)
     }
+
+    func testPerRequestProxyProducesDistinctPoolKeys() throws {
+        let proxyA = HTTPClient.Configuration.Proxy.server(host: "proxy-a.example.com", port: 3128)
+        let proxyB = HTTPClient.Configuration.Proxy.server(host: "proxy-b.example.com", port: 3128)
+
+        let requestNoProxy = Request(url: "https://example.com/get")
+        var requestProxyA = Request(url: "https://example.com/get")
+        var requestProxyB = Request(url: "https://example.com/get")
+        requestProxyA.proxy = proxyA
+        requestProxyB.proxy = proxyB
+
+        var preparedNoProxy: PreparedRequest?
+        var preparedProxyA: PreparedRequest?
+        var preparedProxyB: PreparedRequest?
+        XCTAssertNoThrow(preparedNoProxy = try PreparedRequest(requestNoProxy))
+        XCTAssertNoThrow(preparedProxyA = try PreparedRequest(requestProxyA))
+        XCTAssertNoThrow(preparedProxyB = try PreparedRequest(requestProxyB))
+
+        // Requests through different proxies must land in different pools.
+        XCTAssertNotEqual(preparedNoProxy?.poolKey, preparedProxyA?.poolKey)
+        XCTAssertNotEqual(preparedNoProxy?.poolKey, preparedProxyB?.poolKey)
+        XCTAssertNotEqual(preparedProxyA?.poolKey, preparedProxyB?.poolKey)
+
+        // Same proxy on same host must share a pool.
+        var requestProxyA2 = Request(url: "https://example.com/get")
+        requestProxyA2.proxy = proxyA
+        var preparedProxyA2: PreparedRequest?
+        XCTAssertNoThrow(preparedProxyA2 = try PreparedRequest(requestProxyA2))
+        XCTAssertEqual(preparedProxyA?.poolKey, preparedProxyA2?.poolKey)
+    }
 }
 
 @available(macOS 10.15, iOS 13.0, watchOS 6.0, tvOS 13.0, *)

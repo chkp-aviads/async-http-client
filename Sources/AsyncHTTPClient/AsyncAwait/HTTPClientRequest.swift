@@ -52,6 +52,9 @@ public struct HTTPClientRequest: Sendable {
 
     /// Request-specific TLS configuration, defaults to no request-specific TLS configuration.
     public var tlsConfiguration: TLSConfiguration?
+    /// Request-specific proxy configuration. Overrides the client-wide proxy for this request.
+    /// `nil` means use the client-wide default.
+    public var proxy: HTTPClient.Configuration.Proxy?
 
     public init(url: String) {
         self.url = url
@@ -59,6 +62,7 @@ public struct HTTPClientRequest: Sendable {
         self.headers = .init()
         self.body = .none
         self.tlsConfiguration = nil
+        self.proxy = nil
     }
 }
 

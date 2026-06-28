@@ -176,7 +176,7 @@ extension HTTPConnectionPool.ConnectionFactory {
         logger: Logger,
         promise: EventLoopPromise<NegotiatedProtocol>
     ) {
-        if self.key.scheme.isProxyable, let proxy = self.clientConfiguration.proxy {
+        if self.key.scheme.isProxyable, let proxy = self.key.proxy ?? self.clientConfiguration.proxy {
             switch proxy.type {
             case .socks:
                 self.makeSOCKSProxyChannel(

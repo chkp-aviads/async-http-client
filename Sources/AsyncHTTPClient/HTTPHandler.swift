@@ -236,6 +236,9 @@ extension HTTPClient {
         public var body: Body?
         /// Request-specific TLS configuration, defaults to no request-specific TLS configuration.
         public var tlsConfiguration: TLSConfiguration?
+        /// Request-specific proxy configuration. Overrides the client-wide proxy for this request.
+        /// `nil` means use the client-wide default.
+        public var proxy: HTTPClient.Configuration.Proxy?
 
         /// Parsed, validated and deconstructed URL.
         let deconstructedURL: DeconstructedURL
@@ -332,6 +335,7 @@ extension HTTPClient {
             self.headers = headers
             self.body = body
             self.tlsConfiguration = tlsConfiguration
+            self.proxy = nil
         }
 
         /// Remote host, resolved from `URL`.

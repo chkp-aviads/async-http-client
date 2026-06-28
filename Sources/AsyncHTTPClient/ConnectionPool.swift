@@ -49,17 +49,21 @@ enum ConnectionPool : Sendable {
         var connectionTarget: ConnectionTarget
         private var tlsConfiguration: BestEffortHashableTLSConfiguration?
         var serverNameIndicatorOverride: String?
+        /// Per-request proxy override. `nil` means use the client-wide default.
+        var proxy: HTTPClient.Configuration.Proxy?
 
         init(
             scheme: Scheme,
             connectionTarget: ConnectionTarget,
             tlsConfiguration: BestEffortHashableTLSConfiguration? = nil,
-            serverNameIndicatorOverride: String?
+            serverNameIndicatorOverride: String?,
+            proxy: HTTPClient.Configuration.Proxy? = nil
         ) {
             self.scheme = scheme
             self.connectionTarget = connectionTarget
             self.tlsConfiguration = tlsConfiguration
             self.serverNameIndicatorOverride = serverNameIndicatorOverride
+            self.proxy = proxy
         }
 
         var description: String {
@@ -75,8 +79,9 @@ enum ConnectionPool : Sendable {
             case .unixSocket(let socketPath):
                 hostDescription = socketPath
             }
+            let proxyDescription = self.proxy.map { " proxy: \($0.host):\($0.port)" } ?? ""
             return
-                "\(self.scheme)://\(hostDescription)\(self.serverNameIndicatorOverride.map { " SNI: \($0)" } ?? "") TLS-hash: \(hash)"
+                "\(self.scheme)://\(hostDescription)\(self.serverNameIndicatorOverride.map { " SNI: \($0)" } ?? "")\(proxyDescription) TLS-hash: \(hash)"
         }
     }
 }
@@ -97,7 +102,7 @@ extension DeconstructedURL {
 }
 
 extension ConnectionPool.Key {
-    init(url: DeconstructedURL, tlsConfiguration: TLSConfiguration?, dnsOverride: [String: String]) {
+    init(url: DeconstructedURL, tlsConfiguration: TLSConfiguration?, dnsOverride: [String: String], proxy: HTTPClient.Configuration.Proxy? = nil) {
         let (connectionTarget, serverNameIndicatorOverride) = url.applyDNSOverride(dnsOverride)
         self.init(
             scheme: url.scheme,
@@ -105,7 +110,8 @@ extension ConnectionPool.Key {
             tlsConfiguration: tlsConfiguration.map {
                 BestEffortHashableTLSConfiguration(wrapping: $0)
             },
-            serverNameIndicatorOverride: serverNameIndicatorOverride
+            serverNameIndicatorOverride: serverNameIndicatorOverride,
+            proxy: proxy
         )
     }
 
@@ -113,7 +119,8 @@ extension ConnectionPool.Key {
         self.init(
             url: request.deconstructedURL,
             tlsConfiguration: request.tlsConfiguration,
-            dnsOverride: dnsOverride
+            dnsOverride: dnsOverride,
+            proxy: request.proxy
         )
     }
 }
