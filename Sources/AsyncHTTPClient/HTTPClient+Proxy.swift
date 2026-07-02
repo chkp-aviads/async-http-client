@@ -42,6 +42,10 @@ extension HTTPClient.Configuration {
         /// Specifies Proxy server authorization.
         public var authorization: HTTPClient.Authorization?
 
+        /// An optional, human-readable name for this proxy, used for description/debugging purposes only.
+        /// Not considered when comparing or hashing `Proxy` values.
+        public var name: String?
+
         /// Additional HTTP headers to send on the `CONNECT` request to an HTTP proxy.
         ///
         /// This can be used to set headers such as `User-Agent` on the proxy `CONNECT`
@@ -75,23 +79,29 @@ extension HTTPClient.Configuration {
         ///     - port: proxy server port.
         ///     - authorization: proxy server authorization.
         ///     - connectHeaders: additional HTTP headers to send on the proxy `CONNECT` request.
+        ///     - name: an optional, human-readable name for this proxy, used for description/debugging purposes only.
         public static func server(
             host: String,
             port: Int,
             authorization: HTTPClient.Authorization? = nil,
-            connectHeaders: HTTPHeaders = [:]
+            connectHeaders: HTTPHeaders = [:],
+            name: String? = nil
         ) -> Proxy {
             var proxy = Proxy(host: host, port: port, type: .http, authorization: authorization)
             proxy.connectHeaders = connectHeaders
+            proxy.name = name
             return proxy
         }
 
         /// Create a SOCKSv5 proxy.
         /// - parameter host: The SOCKSv5 proxy address.
         /// - parameter port: The SOCKSv5 proxy port, defaults to 1080.
+        /// - parameter name: an optional, human-readable name for this proxy, used for description/debugging purposes only.
         /// - returns: A new instance of `Proxy` configured to connect to a `SOCKSv5` server.
-        public static func socksServer(host: String, port: Int = 1080, authorization: HTTPClient.Authorization? = nil) -> Proxy {
-            .init(host: host, port: port, type: .socks, authorization: authorization)
+        public static func socksServer(host: String, port: Int = 1080, authorization: HTTPClient.Authorization? = nil, name: String? = nil) -> Proxy {
+            var proxy = Proxy(host: host, port: port, type: .socks, authorization: authorization)
+            proxy.name = name
+            return proxy
         }
 
         // `HTTPHeaders` is `Equatable` but not `Hashable`, so we cannot rely on the
