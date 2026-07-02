@@ -38,6 +38,9 @@ extension HTTPClientRequest {
                 makeCompleteBody: @Sendable (ByteBufferAllocator) -> ByteBuffer
             )
             case byteBuffer(ByteBuffer)
+            #if UnstableHTTPAPIsSupport
+            case httpClientRequestBody(RequestBodyLength, HTTPClientRequest.Body.RequestWriterContinuation)
+            #endif
         }
 
         var url: URL
@@ -111,6 +114,10 @@ extension HTTPClientRequest.Prepared.Body {
             )
         case .byteBuffer(let byteBuffer):
             self = .byteBuffer(byteBuffer)
+        #if UnstableHTTPAPIsSupport
+        case .httpClientRequestBody(let length, let requestBody):
+            self = .httpClientRequestBody(length, requestBody)
+        #endif
         }
     }
 }
@@ -125,6 +132,10 @@ extension RequestBodyLength {
             self = .known(Int64(buffer.readableBytes))
         case .sequence(let length, _, _), .asyncSequence(let length, _):
             self = length
+        #if UnstableHTTPAPIsSupport
+        case .httpClientRequestBody(let length, _):
+            self = length
+        #endif
         }
     }
 }
