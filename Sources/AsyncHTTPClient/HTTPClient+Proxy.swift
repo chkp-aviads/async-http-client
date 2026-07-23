@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 import NIOCore
+import NIOHTTP1
 
 extension HTTPClient.Configuration {
     /// Proxy server configuration
@@ -57,7 +58,15 @@ extension HTTPClient.Configuration {
 
         var type: ProxyType
 
-        /// Create a HTTP proxy.
+        /// Extra headers sent only on the HTTP `CONNECT` request to the proxy.
+        ///
+        /// These headers are not sent to the
+        /// destination server, and are ignored for SOCKS proxies.
+        /// The `host` and `proxy-authorization` headers cannot be overridden through this property
+        /// Note: Excluded from hash, because HTTPHeaders are not hashable.
+        public var connectHeaders: HTTPHeaders = [:]
+
+        /// Create an HTTP proxy configuration.
         ///
         /// - parameters:
         ///     - host: proxy server host.
@@ -66,7 +75,7 @@ extension HTTPClient.Configuration {
             .init(host: host, port: port, type: .http(nil))
         }
 
-        /// Create a HTTP proxy.
+        /// Create an HTTP proxy configuration.
         ///
         /// - parameters:
         ///     - host: proxy server host.
@@ -76,12 +85,37 @@ extension HTTPClient.Configuration {
             .init(host: host, port: port, type: .http(authorization))
         }
 
-        /// Create a SOCKSv5 proxy.
+        /// Create an HTTP proxy configuration.
+        ///
+        /// - parameters:
+        ///     - host: proxy server host.
+        ///     - port: proxy server port.
+        ///     - authorization: proxy server authorization.
+        ///     - connectHeaders: extra headers sent only on the `CONNECT` request to the proxy.
+        public static func server(
+            host: String,
+            port: Int,
+            authorization: HTTPClient.Authorization? = nil,
+            connectHeaders: HTTPHeaders
+        ) -> Self {
+            var proxy = Self(host: host, port: port, type: .http(authorization))
+            proxy.connectHeaders = connectHeaders
+            return proxy
+        }
+
+        /// Create a SOCKSv5 proxy configuration.
         /// - parameter host: The SOCKSv5 proxy address.
         /// - parameter port: The SOCKSv5 proxy port, defaults to 1080.
         /// - returns: A new instance of `Proxy` configured to connect to a `SOCKSv5` server.
         public static func socksServer(host: String, port: Int = 1080) -> Proxy {
             .init(host: host, port: port, type: .socks)
+        }
+
+        // `connectHeaders` is omitted (HTTPHeaders is not hashable)
+        public func hash(into hasher: inout Hasher) {
+            hasher.combine(self.host)
+            hasher.combine(self.port)
+            hasher.combine(self.type)
         }
     }
 }
