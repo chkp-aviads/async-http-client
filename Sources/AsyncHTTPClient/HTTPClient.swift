@@ -926,6 +926,34 @@ public final class HTTPClient: Sendable {
         /// A method with access to the HTTP/2 stream channel that is called when creating the stream.
         public var http2StreamChannelDebugInitializer: (@Sendable (Channel) -> EventLoopFuture<Void>)?
 
+        /// A method that installs the Shadowsocks codec on a channel freshly connected to a
+        /// ``Proxy/ProxyType/shadowsocks(_:)`` proxy.
+        ///
+        /// This library carries Shadowsocks credentials on the proxy configuration but deliberately
+        /// contains no cryptography, so the codec is supplied by the caller. When a Shadowsocks proxy
+        /// is configured and this is `nil`, the request fails with
+        /// ``HTTPClientError/shadowsocksCodecNotRegistered`` rather than connecting directly — traffic
+        /// that was configured to be tunnelled is never sent in the clear.
+        ///
+        /// The returned future must succeed once the channel is ready to carry plaintext. It must
+        /// *not* wait for the Shadowsocks server's response header: a SIP022 server only replies once
+        /// the target has data to send, so waiting would deadlock any client-speaks-first protocol
+        /// such as TLS.
+        ///
+        /// - parameters:
+        ///   - channel: the channel connected to the Shadowsocks server.
+        ///   - credentials: the method and PSK chain from the proxy configuration.
+        ///   - targetHost: the host the tunnel should reach.
+        ///   - targetPort: the port the tunnel should reach.
+        public var shadowsocksChannelInitializer: (
+            @Sendable (
+                _ channel: Channel,
+                _ credentials: Proxy.Shadowsocks,
+                _ targetHost: String,
+                _ targetPort: Int
+            ) -> EventLoopFuture<Void>
+        )?
+
         /// Configuration how distributed traces are created and handled.
         public var tracing: TracingConfiguration = .init()
 
@@ -1449,6 +1477,7 @@ public struct HTTPClientError: Error, Equatable, CustomStringConvertible {
         @available(*, deprecated, message: "AsyncHTTPClient now silently corrects this invalid header.")
         case chunkedSpecifiedMultipleTimes
         case invalidProxyResponse
+        case shadowsocksCodecNotRegistered
         case contentLengthMissing
         case proxyAuthenticationRequired
         case redirectLimitReached
@@ -1518,6 +1547,8 @@ public struct HTTPClientError: Error, Equatable, CustomStringConvertible {
             return "Chunked specified multiple times"
         case .invalidProxyResponse:
             return "Invalid proxy response"
+        case .shadowsocksCodecNotRegistered:
+            return "No Shadowsocks channel initializer was registered"
         case .contentLengthMissing:
             return "Content length missing"
         case .proxyAuthenticationRequired:
@@ -1602,6 +1633,9 @@ public struct HTTPClientError: Error, Equatable, CustomStringConvertible {
     public static let chunkedSpecifiedMultipleTimes = HTTPClientError(code: .chunkedSpecifiedMultipleTimes)
     /// Proxy response was invalid.
     public static let invalidProxyResponse = HTTPClientError(code: .invalidProxyResponse)
+    /// A Shadowsocks proxy was configured but no channel initializer was registered. Fails closed
+    /// rather than connecting directly, so traffic that policy said to tunnel is never sent in clear.
+    public static let shadowsocksCodecNotRegistered = HTTPClientError(code: .shadowsocksCodecNotRegistered)
     /// Request does not contain `Content-Length` header.
     public static let contentLengthMissing = HTTPClientError(code: .contentLengthMissing)
     /// Proxy Authentication Required.

@@ -28,9 +28,52 @@ extension HTTPClient.Configuration {
     /// TLS will be established _after_ successful proxy, between your client
     /// and the destination server.
     public struct Proxy: Sendable, Hashable {
-        public enum ProxyType: Hashable, Sendable {
+        public enum ProxyType: Hashable, Sendable, CustomStringConvertible {
             case http
             case socks
+            /// A Shadowsocks 2022 (SIP022) server.
+            ///
+            /// Credentials live inside the case rather than in a sibling property for two reasons:
+            /// `Proxy` implements `Hashable` by hand and is a stored field of the `Hashable`
+            /// `ConnectionPool.Key`, so keeping them here means they are hashed and compared
+            /// automatically — two servers reached at the same `host:port` with different keys can
+            /// never share a pooled connection because someone forgot to update `==`. And a
+            /// `.shadowsocks` proxy without credentials becomes unrepresentable.
+            case shadowsocks(Shadowsocks)
+
+            /// Deliberately hand-written: the default reflection-based rendering of an enum with an
+            /// associated value would walk into ``Shadowsocks`` and risk printing key material.
+            public var description: String {
+                switch self {
+                case .http: return "http"
+                case .socks: return "socks"
+                case .shadowsocks(let shadowsocks): return "shadowsocks(\(shadowsocks.method))"
+                }
+            }
+        }
+
+        /// Credentials for a Shadowsocks 2022 server.
+        ///
+        /// Opaque to AsyncHTTPClient: it carries these to the registered
+        /// ``HTTPClient/Configuration/Proxy/shadowsocksChannelInitializer`` and never interprets
+        /// them, so the cryptography stays in the client library that owns the protocol.
+        public struct Shadowsocks: Hashable, Sendable, CustomStringConvertible {
+            /// The AEAD-2022 method name, e.g. `2022-blake3-aes-128-gcm`.
+            public var method: String
+
+            /// The pre-shared key chain, outermost first. With extensible identity headers the last
+            /// element is the per-user key (uPSK) and everything before it is an identity key (iPSK).
+            public var pskChain: [[UInt8]]
+
+            public init(method: String, pskChain: [[UInt8]]) {
+                self.method = method
+                self.pskChain = pskChain
+            }
+
+            /// Never renders key material.
+            public var description: String {
+                "Shadowsocks(method: \(self.method), psks: \(self.pskChain.count))"
+            }
         }
 
         /// Specifies Proxy server host.
@@ -102,6 +145,40 @@ extension HTTPClient.Configuration {
             var proxy = Proxy(host: host, port: port, type: .socks, authorization: authorization)
             proxy.name = name
             return proxy
+        }
+
+        /// Create a Shadowsocks 2022 (SIP022) proxy.
+        ///
+        /// - parameter host: The Shadowsocks server address.
+        /// - parameter port: The Shadowsocks server port.
+        /// - parameter method: The AEAD-2022 method name, e.g. `2022-blake3-aes-128-gcm`.
+        /// - parameter pskChain: The pre-shared key chain, outermost first.
+        /// - parameter name: an optional, human-readable name used for description/debugging only.
+        public static func shadowsocksServer(
+            host: String,
+            port: Int,
+            method: String,
+            pskChain: [[UInt8]],
+            name: String? = nil
+        ) -> Proxy {
+            var proxy = Proxy(
+                host: host,
+                port: port,
+                type: .shadowsocks(Shadowsocks(method: method, pskChain: pskChain)),
+                authorization: nil
+            )
+            proxy.name = name
+            return proxy
+        }
+
+        /// Whether this proxy can carry UDP as well as TCP.
+        ///
+        /// HTTP CONNECT can only tunnel TCP connections; SOCKSv5 has UDP ASSOCIATE and Shadowsocks
+        /// carries UDP natively. Callers that steer datagrams should consult this rather than
+        /// comparing against ``ProxyType/http`` so a new transport is handled correctly by default.
+        public var supportsUDP: Bool {
+            if case .http = self.type { return false }
+            return true
         }
 
         // `HTTPHeaders` is `Equatable` but not `Hashable`, so we cannot rely on the

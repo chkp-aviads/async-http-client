@@ -198,6 +198,17 @@ extension HTTPConnectionPool.ConnectionFactory {
                     logger: logger,
                     promise: promise
                 )
+            case .shadowsocks(let credentials):
+                self.makeShadowsocksProxyChannel(
+                    proxy,
+                    credentials: credentials,
+                    requester: requester,
+                    connectionID: connectionID,
+                    deadline: deadline,
+                    eventLoop: eventLoop,
+                    logger: logger,
+                    promise: promise
+                )
             }
         } else {
             self.makeNonProxiedChannel(
@@ -372,6 +383,54 @@ extension HTTPConnectionPool.ConnectionFactory {
                 promise.fail(error)
             }
             
+        }
+    }
+
+    /// Connects to a Shadowsocks server and hands the channel to the registered codec initializer.
+    ///
+    /// Modelled on ``makeSOCKSProxyChannel(_:requester:connectionID:deadline:eventLoop:logger:promise:)``
+    /// with one deliberate difference: the codec handler is *not* removed once the tunnel is up,
+    /// because unlike a SOCKS or CONNECT handshake it has to encrypt every subsequent byte.
+    private func makeShadowsocksProxyChannel<Requester: HTTPConnectionRequester>(
+        _ proxy: HTTPClient.Configuration.Proxy,
+        credentials: HTTPClient.Configuration.Proxy.Shadowsocks,
+        requester: Requester,
+        connectionID: HTTPConnectionPool.Connection.ID,
+        deadline: NIODeadline,
+        eventLoop: EventLoop,
+        logger: Logger,
+        promise: EventLoopPromise<NegotiatedProtocol>
+    ) {
+        guard let initializer = self.clientConfiguration.shadowsocksChannelInitializer else {
+            // Failing closed is deliberate: a Shadowsocks proxy with no codec registered must not
+            // quietly fall back to a direct connection, which would send traffic in the clear that
+            // policy said to tunnel.
+            return promise.fail(HTTPClientError.shadowsocksCodecNotRegistered)
+        }
+
+        guard let targetHost = self.key.connectionTarget.host,
+              let targetPort = self.key.connectionTarget.port else {
+            return promise.fail(HTTPClientError.invalidProxyResponse)
+        }
+
+        self.makePlainBootstrap(
+            requester: requester,
+            connectionID: connectionID,
+            deadline: deadline,
+            eventLoop: eventLoop
+        ).flatMap { bootstrap in
+            bootstrap.connect(host: proxy.host, port: proxy.port)
+        }.whenComplete { result in
+            switch result {
+            case .success(let channel):
+                initializer(channel, credentials, targetHost, targetPort).flatMap {
+                    // Origin TLS is added at the tail, so its records are encrypted by the
+                    // Shadowsocks handler sitting closer to the wire — same as the SOCKS path.
+                    self.setupOriginTLSInProxyConnectionIfNeeded(channel, deadline: deadline, logger: logger)
+                }.cascade(to: promise)
+            case .failure(let error):
+                promise.fail(error)
+            }
         }
     }
 
