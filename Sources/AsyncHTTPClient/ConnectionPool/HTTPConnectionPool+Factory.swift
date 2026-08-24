@@ -19,6 +19,7 @@ import NIOHTTPCompression
 import NIOPosix
 import NIOSOCKS
 import NIOSSL
+import NIOShadowsocks
 import NIOTLS
 
 #if canImport(Network)
@@ -198,10 +199,10 @@ extension HTTPConnectionPool.ConnectionFactory {
                     logger: logger,
                     promise: promise
                 )
-            case .shadowsocks(let credentials):
+            case .shadowsocks(let configuration):
                 self.makeShadowsocksProxyChannel(
                     proxy,
-                    credentials: credentials,
+                    configuration: configuration,
                     requester: requester,
                     connectionID: connectionID,
                     deadline: deadline,
@@ -386,14 +387,16 @@ extension HTTPConnectionPool.ConnectionFactory {
         }
     }
 
-    /// Connects to a Shadowsocks server and hands the channel to the registered codec initializer.
+    /// Connects to a Shadowsocks server and installs the codec.
     ///
     /// Modelled on ``makeSOCKSProxyChannel(_:requester:connectionID:deadline:eventLoop:logger:promise:)``
-    /// with one deliberate difference: the codec handler is *not* removed once the tunnel is up,
-    /// because unlike a SOCKS or CONNECT handshake it has to encrypt every subsequent byte.
+    /// with two deliberate differences: the codec handler is *not* removed once the tunnel is up,
+    /// because unlike a SOCKS or CONNECT handshake it has to encrypt every subsequent byte; and
+    /// nothing waits for the server's response header, because a SIP022 server only sends one once the
+    /// target has data to send — waiting would deadlock any client-speaks-first protocol such as TLS.
     private func makeShadowsocksProxyChannel<Requester: HTTPConnectionRequester>(
         _ proxy: HTTPClient.Configuration.Proxy,
-        credentials: HTTPClient.Configuration.Proxy.Shadowsocks,
+        configuration: ShadowsocksConfiguration,
         requester: Requester,
         connectionID: HTTPConnectionPool.Connection.ID,
         deadline: NIODeadline,
@@ -401,13 +404,6 @@ extension HTTPConnectionPool.ConnectionFactory {
         logger: Logger,
         promise: EventLoopPromise<NegotiatedProtocol>
     ) {
-        guard let initializer = self.clientConfiguration.shadowsocksChannelInitializer else {
-            // Failing closed is deliberate: a Shadowsocks proxy with no codec registered must not
-            // quietly fall back to a direct connection, which would send traffic in the clear that
-            // policy said to tunnel.
-            return promise.fail(HTTPClientError.shadowsocksCodecNotRegistered)
-        }
-
         guard let targetHost = self.key.connectionTarget.host,
               let targetPort = self.key.connectionTarget.port else {
             return promise.fail(HTTPClientError.invalidProxyResponse)
@@ -423,7 +419,15 @@ extension HTTPConnectionPool.ConnectionFactory {
         }.whenComplete { result in
             switch result {
             case .success(let channel):
-                initializer(channel, credentials, targetHost, targetPort).flatMap {
+                let handler = ShadowsocksClientHandler(
+                    config: configuration,
+                    targetHost: targetHost,
+                    targetPort: targetPort,
+                    logger: logger
+                )
+                channel.eventLoop.makeCompletedFuture {
+                    try channel.pipeline.syncOperations.addHandler(handler)
+                }.flatMap {
                     // Origin TLS is added at the tail, so its records are encrypted by the
                     // Shadowsocks handler sitting closer to the wire — same as the SOCKS path.
                     self.setupOriginTLSInProxyConnectionIfNeeded(channel, deadline: deadline, logger: logger)

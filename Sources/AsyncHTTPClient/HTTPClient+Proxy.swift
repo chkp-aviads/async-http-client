@@ -15,6 +15,7 @@
 import NIOCore
 import NIOHTTP1
 import NIOSSL
+import NIOShadowsocks
 
 extension HTTPClient.Configuration {
     /// Proxy server configuration
@@ -33,46 +34,22 @@ extension HTTPClient.Configuration {
             case socks
             /// A Shadowsocks 2022 (SIP022) server.
             ///
-            /// Credentials live inside the case rather than in a sibling property for two reasons:
+            /// The configuration lives inside the case rather than in a sibling property because
             /// `Proxy` implements `Hashable` by hand and is a stored field of the `Hashable`
-            /// `ConnectionPool.Key`, so keeping them here means they are hashed and compared
-            /// automatically — two servers reached at the same `host:port` with different keys can
-            /// never share a pooled connection because someone forgot to update `==`. And a
-            /// `.shadowsocks` proxy without credentials becomes unrepresentable.
-            case shadowsocks(Shadowsocks)
+            /// `ConnectionPool.Key`: keeping it here means it is hashed and compared automatically, so
+            /// two servers reached at the same `host:port` with different keys can never share a
+            /// pooled connection because someone forgot to update `==`. It also makes a
+            /// `.shadowsocks` proxy without credentials unrepresentable.
+            case shadowsocks(ShadowsocksConfiguration)
 
             /// Deliberately hand-written: the default reflection-based rendering of an enum with an
-            /// associated value would walk into ``Shadowsocks`` and risk printing key material.
+            /// associated value would walk into the PSK chain and risk printing key material.
             public var description: String {
                 switch self {
                 case .http: return "http"
                 case .socks: return "socks"
-                case .shadowsocks(let shadowsocks): return "shadowsocks(\(shadowsocks.method))"
+                case .shadowsocks(let configuration): return "shadowsocks(\(configuration.method.rawValue))"
                 }
-            }
-        }
-
-        /// Credentials for a Shadowsocks 2022 server.
-        ///
-        /// Opaque to AsyncHTTPClient: it carries these to the registered
-        /// ``HTTPClient/Configuration/Proxy/shadowsocksChannelInitializer`` and never interprets
-        /// them, so the cryptography stays in the client library that owns the protocol.
-        public struct Shadowsocks: Hashable, Sendable, CustomStringConvertible {
-            /// The AEAD-2022 method name, e.g. `2022-blake3-aes-128-gcm`.
-            public var method: String
-
-            /// The pre-shared key chain, outermost first. With extensible identity headers the last
-            /// element is the per-user key (uPSK) and everything before it is an identity key (iPSK).
-            public var pskChain: [[UInt8]]
-
-            public init(method: String, pskChain: [[UInt8]]) {
-                self.method = method
-                self.pskChain = pskChain
-            }
-
-            /// Never renders key material.
-            public var description: String {
-                "Shadowsocks(method: \(self.method), psks: \(self.pskChain.count))"
             }
         }
 
@@ -167,20 +144,18 @@ extension HTTPClient.Configuration {
         ///
         /// - parameter host: The Shadowsocks server address.
         /// - parameter port: The Shadowsocks server port.
-        /// - parameter method: The AEAD-2022 method name, e.g. `2022-blake3-aes-128-gcm`.
-        /// - parameter pskChain: The pre-shared key chain, outermost first.
+        /// - parameter configuration: The method and pre-shared key chain, already validated.
         /// - parameter name: an optional, human-readable name used for description/debugging only.
         public static func shadowsocksServer(
             host: String,
             port: Int,
-            method: String,
-            pskChain: [[UInt8]],
+            configuration: ShadowsocksConfiguration,
             name: String? = nil
         ) -> Proxy {
             var proxy = Proxy(
                 host: host,
                 port: port,
-                type: .shadowsocks(Shadowsocks(method: method, pskChain: pskChain)),
+                type: .shadowsocks(configuration),
                 authorization: nil
             )
             proxy.name = name
