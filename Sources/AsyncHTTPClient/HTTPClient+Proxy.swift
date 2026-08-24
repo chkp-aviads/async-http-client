@@ -89,17 +89,6 @@ extension HTTPClient.Configuration {
         /// Not considered when comparing or hashing `Proxy` values.
         public var name: String?
 
-        /// Additional HTTP headers to send on the `CONNECT` request to an HTTP proxy.
-        ///
-        /// This can be used to set headers such as `User-Agent` on the proxy `CONNECT`
-        /// request. These headers are only sent when ``type`` is `.http`; they are
-        /// ignored for SOCKS proxies.
-        ///
-        /// The `host` and `proxy-authorization` headers are always set by the client
-        /// based on the connection target and ``authorization``, and take precedence
-        /// over any value provided here.
-        public var connectHeaders: HTTPHeaders = [:]
-
         /// TLS configuration for the proxy server
         internal var internalTlsConfiguration: BestEffortHashableTLSConfiguration? = nil
         public var tlsConfiguration : TLSConfiguration? {
@@ -115,7 +104,15 @@ extension HTTPClient.Configuration {
             }
         }
 
-        /// Create a HTTP proxy.
+        /// Extra headers sent only on the HTTP `CONNECT` request to the proxy.
+        ///
+        /// These headers are not sent to the
+        /// destination server, and are ignored for SOCKS proxies.
+        /// The `host` and `proxy-authorization` headers cannot be overridden through this property
+        /// Note: Excluded from hash, because HTTPHeaders are not hashable.
+        public var connectHeaders: HTTPHeaders = [:]
+
+        /// Create an HTTP proxy configuration.
         ///
         /// - parameters:
         ///     - host: proxy server host.
@@ -136,7 +133,26 @@ extension HTTPClient.Configuration {
             return proxy
         }
 
-        /// Create a SOCKSv5 proxy.
+        /// Create an HTTP proxy configuration.
+        ///
+        /// - parameters:
+        ///     - host: proxy server host.
+        ///     - port: proxy server port.
+        ///     - authorization: proxy server authorization.
+        ///     - connectHeaders: extra headers sent only on the `CONNECT` request to the proxy.
+        public static func server(
+            host: String,
+            port: Int,
+            authorization: HTTPClient.Authorization? = nil,
+            connectHeaders: HTTPHeaders
+        ) -> Self {
+            var proxy = Self(host: host, port: port, type: .http)
+            proxy.authorization = authorization
+            proxy.connectHeaders = connectHeaders
+            return proxy
+        }
+
+        /// Create a SOCKSv5 proxy configuration.
         /// - parameter host: The SOCKSv5 proxy address.
         /// - parameter port: The SOCKSv5 proxy port, defaults to 1080.
         /// - parameter name: an optional, human-readable name for this proxy, used for description/debugging purposes only.
@@ -181,20 +197,6 @@ extension HTTPClient.Configuration {
             return true
         }
 
-        // `HTTPHeaders` is `Equatable` but not `Hashable`, so we cannot rely on the
-        // compiler-synthesized conformance and implement `Hashable` manually instead.
-        public func hash(into hasher: inout Hasher) {
-            hasher.combine(self.host)
-            hasher.combine(self.port)
-            hasher.combine(self.type)
-            hasher.combine(self.authorization)
-            hasher.combine(self.internalTlsConfiguration)
-            for (name, value) in self.connectHeaders {
-                hasher.combine(name)
-                hasher.combine(value)
-            }
-        }
-
         public static func == (lhs: Proxy, rhs: Proxy) -> Bool {
             lhs.host == rhs.host
                 && lhs.port == rhs.port
@@ -202,6 +204,15 @@ extension HTTPClient.Configuration {
                 && lhs.authorization == rhs.authorization
                 && lhs.internalTlsConfiguration == rhs.internalTlsConfiguration
                 && lhs.connectHeaders == rhs.connectHeaders
+        }
+
+        // `connectHeaders` is omitted (HTTPHeaders is not hashable)
+        public func hash(into hasher: inout Hasher) {
+            hasher.combine(self.host)
+            hasher.combine(self.port)
+            hasher.combine(self.type)
+            hasher.combine(self.authorization)
+            hasher.combine(self.internalTlsConfiguration)
         }
     }
 }

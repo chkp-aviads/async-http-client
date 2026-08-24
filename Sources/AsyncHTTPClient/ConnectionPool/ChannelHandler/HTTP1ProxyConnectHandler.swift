@@ -35,10 +35,12 @@ public final class HTTP1ProxyConnectHandler: ChannelDuplexHandler, RemovableChan
 
     private var state: State = .initialized
 
+    private static let reservedConnectHeaders: Set<String> = ["host", "proxy-authorization"]
+
     private let targetHost: String
     private let targetPort: Int
     private let proxyAuthorization: HTTPClient.Authorization?
-    private let headers: HTTPHeaders
+    private let connectHeaders: HTTPHeaders
     private let deadline: NIODeadline
 
     private var proxyEstablishedPromise: EventLoopPromise<Void>?
@@ -49,7 +51,7 @@ public final class HTTP1ProxyConnectHandler: ChannelDuplexHandler, RemovableChan
     public convenience init(
         target: ConnectionTarget,
         proxyAuthorization: HTTPClient.Authorization?,
-        headers: HTTPHeaders = [:],
+        connectHeaders: HTTPHeaders,
         deadline: NIODeadline
     ) {
         let targetHost: String
@@ -68,7 +70,7 @@ public final class HTTP1ProxyConnectHandler: ChannelDuplexHandler, RemovableChan
             targetHost: targetHost,
             targetPort: targetPort,
             proxyAuthorization: proxyAuthorization,
-            headers: headers,
+            connectHeaders: connectHeaders,
             deadline: deadline
         )
     }
@@ -77,13 +79,13 @@ public final class HTTP1ProxyConnectHandler: ChannelDuplexHandler, RemovableChan
         targetHost: String,
         targetPort: Int,
         proxyAuthorization: HTTPClient.Authorization?,
-        headers: HTTPHeaders = [:],
+        connectHeaders: HTTPHeaders = [:],
         deadline: NIODeadline
     ) {
         self.targetHost = targetHost
         self.targetPort = targetPort
         self.proxyAuthorization = proxyAuthorization
-        self.headers = headers
+        self.connectHeaders = connectHeaders
         self.deadline = deadline
     }
 
@@ -162,12 +164,12 @@ public final class HTTP1ProxyConnectHandler: ChannelDuplexHandler, RemovableChan
             method: .CONNECT,
             uri: "\(self.targetHost):\(self.targetPort)"
         )
-        // Apply any user-provided headers first, then set the headers that are
-        // mandatory for the proxy handshake so they always take precedence.
-        head.headers.add(contentsOf: self.headers)
-        head.headers.replaceOrAdd(name: "host", value: "\(self.targetHost)")
+        for (name, value) in self.connectHeaders where !Self.reservedConnectHeaders.contains(name.lowercased()) {
+            head.headers.add(name: name, value: value)
+        }
+        head.headers.add(name: "host", value: "\(self.targetHost)")
         if let authorization = self.proxyAuthorization {
-            head.headers.replaceOrAdd(name: "proxy-authorization", value: authorization.headerValue)
+            head.headers.add(name: "proxy-authorization", value: authorization.headerValue)
         }
         context.write(self.wrapOutboundOut(.head(head)), promise: nil)
         context.write(self.wrapOutboundOut(.end(nil)), promise: nil)
