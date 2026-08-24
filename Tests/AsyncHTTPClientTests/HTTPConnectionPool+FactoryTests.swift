@@ -49,7 +49,7 @@ class HTTPConnectionPool_FactoryTests: XCTestCase {
         let dnsResolverCallCount = ManagedAtomic<Int>(0)
         let eventLoop = clientGroup.next()
         var configuration = HTTPClient.Configuration()
-        configuration.dnsResolver = {
+        configuration.customDnsResolver = {
             dnsResolverCallCount.wrappingIncrement(ordering: .relaxed)
             return eventLoop.makeSucceededFuture(nil)
         }

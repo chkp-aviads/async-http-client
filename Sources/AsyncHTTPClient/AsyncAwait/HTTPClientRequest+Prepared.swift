@@ -38,6 +38,9 @@ extension HTTPClientRequest {
                 makeCompleteBody: @Sendable (ByteBufferAllocator) -> ByteBuffer
             )
             case byteBuffer(ByteBuffer)
+            #if UnstableHTTPAPIsSupport
+            case httpClientRequestBody(RequestBodyLength, HTTPClientRequest.Body.RequestWriterContinuation)
+            #endif
         }
 
         var url: URL
@@ -54,6 +57,7 @@ extension HTTPClientRequest.Prepared {
     init(
         _ request: HTTPClientRequest,
         dnsOverride: [String: String] = [:],
+        localAddress: String? = nil,
         tracing: HTTPClient.TracingConfiguration? = nil
     ) throws {
         guard !request.url.isEmpty, let url = URL(string: request.url) else {
@@ -77,7 +81,12 @@ extension HTTPClientRequest.Prepared {
 
         self.init(
             url: url,
-            poolKey: .init(url: deconstructedURL, tlsConfiguration: request.tlsConfiguration, dnsOverride: dnsOverride, proxy: request.proxy),
+            poolKey: .init(
+                url: deconstructedURL,
+                tlsConfiguration: request.tlsConfiguration,
+                dnsOverride: dnsOverride,
+                localAddress: request.localAddress ?? localAddress,
+                proxy: request.proxy),
             requestFramingMetadata: metadata,
             head: .init(
                 version: .http1_1,
@@ -105,6 +114,10 @@ extension HTTPClientRequest.Prepared.Body {
             )
         case .byteBuffer(let byteBuffer):
             self = .byteBuffer(byteBuffer)
+        #if UnstableHTTPAPIsSupport
+        case .httpClientRequestBody(let length, let requestBody):
+            self = .httpClientRequestBody(length, requestBody)
+        #endif
         }
     }
 }
@@ -119,6 +132,10 @@ extension RequestBodyLength {
             self = .known(Int64(buffer.readableBytes))
         case .sequence(let length, _, _), .asyncSequence(let length, _):
             self = length
+        #if UnstableHTTPAPIsSupport
+        case .httpClientRequestBody(let length, _):
+            self = length
+        #endif
         }
     }
 }
@@ -144,6 +161,7 @@ extension HTTPClientRequest {
         newRequest.method = method
         newRequest.headers = headers
         newRequest.body = body
+        newRequest.localAddress = self.localAddress
         return newRequest
     }
 }

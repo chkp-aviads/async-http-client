@@ -56,12 +56,20 @@ public struct HTTPClientRequest: Sendable {
     /// `nil` means use the client-wide default.
     public var proxy: HTTPClient.Configuration.Proxy?
 
+    /// The local IP address to bind this request's connection to.
+    ///
+    /// When set, overrides ``HTTPClient/Configuration/localAddress`` for this request.
+    /// The value should be an IP address string (e.g. `"192.168.1.10"` or `"::1"`).
+    /// Defaults to `nil` (use client configuration default).
+    public var localAddress: String?
+
     public init(url: String) {
         self.url = url
         self.method = .GET
         self.headers = .init()
         self.body = .none
         self.tlsConfiguration = nil
+        self.localAddress = nil
         self.proxy = nil
     }
 }
@@ -96,6 +104,13 @@ extension HTTPClientRequest {
                 makeCompleteBody: @Sendable (ByteBufferAllocator) -> ByteBuffer
             )
             case byteBuffer(ByteBuffer)
+
+            #if UnstableHTTPAPIsSupport
+            case httpClientRequestBody(
+                length: RequestBodyLength,
+                startUpload: RequestWriterContinuation
+            )
+            #endif
         }
 
         @usableFromInline
@@ -105,6 +120,44 @@ extension HTTPClientRequest {
         internal init(_ mode: Mode) {
             self.mode = mode
         }
+
+        #if UnstableHTTPAPIsSupport
+        public init(length: Int64?, startUpload: AsyncStream<RequestWriter>.Continuation) {
+            let length = length.map { RequestBodyLength.known($0) } ?? .unknown
+            self.init(
+                .httpClientRequestBody(
+                    length: length,
+                    startUpload: RequestWriterContinuation(continuation: startUpload)
+                )
+            )
+        }
+
+        @usableFromInline
+        struct RequestWriterContinuation: Sendable {
+            var continuation: AsyncStream<RequestWriter>.Continuation
+        }
+
+        @available(macOS 10.15, iOS 13.0, watchOS 6.0, tvOS 13.0, *)
+        public struct RequestWriter: Sendable {
+            @usableFromInline
+            let transaction: Transaction
+
+            @inlinable
+            public func writeRequestBodyPart(_ buffer: ByteBuffer) async throws {
+                try await self.transaction.writeRequestBodyPart(buffer)
+            }
+
+            @inlinable
+            public func requestBodyStreamFinished(trailers: HTTPHeaders?) {
+                self.transaction.requestBodyStreamFinished(trailers: trailers)
+            }
+
+            @inlinable
+            public func fail(_ error: any Error) {
+                self.transaction.fail(error)
+            }
+        }
+        #endif
     }
 }
 
@@ -349,6 +402,9 @@ extension Optional where Wrapped == HTTPClientRequest.Body {
         case .byteBuffer: return true
         case .sequence(_, let canBeConsumedMultipleTimes, _): return canBeConsumedMultipleTimes
         case .asyncSequence: return false
+        #if UnstableHTTPAPIsSupport
+        case .httpClientRequestBody: return false  // TODO: I think this should be TRUE
+        #endif
         }
     }
 }
@@ -389,6 +445,10 @@ extension HTTPClientRequest.Body: AsyncSequence {
             return .init(storage: .byteBuffer(makeCompleteBody(AsyncIterator.allocator)))
         case .byteBuffer(let byteBuffer):
             return .init(storage: .byteBuffer(byteBuffer))
+        #if UnstableHTTPAPIsSupport
+        case .httpClientRequestBody:
+            fatalError("Unimplemented")
+        #endif
         }
     }
 }

@@ -261,7 +261,7 @@ extension HTTPConnectionPool.ConnectionFactory {
         precondition(!self.key.scheme.usesTLS, "Unexpected scheme")
         return self.makePlainBootstrap(requester: requester, connectionID: connectionID, deadline: deadline, eventLoop: eventLoop)
             .flatMap { bootstrap in
-                return bootstrap.connect(target: self.key.connectionTarget, resolver: clientConfiguration.dnsResolver?(), eventLoop: eventLoop)
+                return bootstrap.connect(target: self.key.connectionTarget, resolver: clientConfiguration.customDnsResolver?(), eventLoop: eventLoop)
             }.map {
                 .http1_1($0)
             }
@@ -551,9 +551,13 @@ extension HTTPConnectionPool.ConnectionFactory {
     ) -> EventLoopFuture<NIOClientTCPBootstrapProtocol> {
         #if canImport(Network)
         if #available(OSX 10.14, iOS 12.0, tvOS 12.0, watchOS 6.0, *),
-           let tsBootstrap = NIOTSConnectionBootstrap(validatingGroup: eventLoop) {
-           let bootstrap = tsBootstrap
-               .withNWParameters(clientConfiguration.nwParametersConfigurator)
+            let tsBootstrap = NIOTSConnectionBootstrap(validatingGroup: eventLoop)
+        {
+            if let localAddress = self.key.localAddress, !localAddress.isIPAddress {
+                return eventLoop.makeFailedFuture(HTTPClientError.invalidLocalAddress)
+            }
+            var bootstrap =
+                tsBootstrap
                 .channelOption(
                     NIOTSChannelOptions.waitForActivity,
                     value: self.clientConfiguration.networkFrameworkWaitForConnectivity
@@ -574,15 +578,38 @@ extension HTTPConnectionPool.ConnectionFactory {
                         return channel.eventLoop.makeFailedFuture(error)
                     }
                 }
+            if let localAddress = self.key.localAddress {
+                bootstrap = bootstrap.configureNWParameters { params in
+                    params.requiredLocalEndpoint = NWEndpoint.hostPort(
+                                                                       host: NWEndpoint.Host(localAddress),
+                                                                       port: .any
+                                                                       )
+                }
+            }
             return eventLoop.makeSucceededFuture(bootstrap)
         }
         #endif
 
         if let nioBootstrap = ClientBootstrap(validatingGroup: eventLoop) {
-            let bootstrap = nioBootstrap
+            var bootstrap =
+                nioBootstrap
                 .connectTimeout(deadline - NIODeadline.now())
                 .enableMPTCP(clientConfiguration.enableMultipath)
-            if let resolverFuture = self.clientConfiguration.dnsResolver?() {
+            switch clientConfiguration.dnsResolver.backing {
+            case .system:
+                break
+            case .randomized:
+                bootstrap = bootstrap.resolver(NIORandomizedDNSResolver(loop: eventLoop))
+            }
+            if let localAddress = self.key.localAddress {
+                do {
+                    let socketAddress = try SocketAddress(ipAddress: localAddress, port: 0)
+                    bootstrap = bootstrap.bind(to: socketAddress)
+                } catch {
+                    return eventLoop.makeFailedFuture(HTTPClientError.invalidLocalAddress)
+                }
+            }
+            if let resolverFuture = self.clientConfiguration.customDnsResolver?() {
                 return resolverFuture.hop(to: eventLoop).assumeIsolated().map { resolver in
                     return bootstrap.resolver(resolver)
                 }.nonisolated()
@@ -614,7 +641,7 @@ extension HTTPConnectionPool.ConnectionFactory {
         bootstrapFuture.whenComplete { result in
             switch result {
             case .success(let bootstrap):
-                bootstrap.connect(target: self.key.connectionTarget, resolver: clientConfiguration.dnsResolver?(), eventLoop: eventLoop)
+                bootstrap.connect(target: self.key.connectionTarget, resolver: clientConfiguration.customDnsResolver?(), eventLoop: eventLoop)
                     .flatMap {
                         channel -> EventLoopFuture<(Channel, String?)> in
                         do {
@@ -657,6 +684,10 @@ extension HTTPConnectionPool.ConnectionFactory {
         eventLoop: EventLoop,
         logger: Logger
     ) -> EventLoopFuture<NIOClientTCPBootstrapProtocol> {
+        if let localAddress = self.key.localAddress, !localAddress.isIPAddress {
+            return eventLoop.makeFailedFuture(HTTPClientError.invalidLocalAddress)
+        }
+
         var tlsConfig = self.tlsConfiguration
         switch self.clientConfiguration.httpVersion.configuration {
         case .automatic:
@@ -672,8 +703,9 @@ extension HTTPConnectionPool.ConnectionFactory {
         #if canImport(Network)
         if #available(OSX 10.14, iOS 12.0, tvOS 12.0, watchOS 6.0, *), eventLoop is QoSEventLoop {
             // create NIOClientTCPBootstrap with NIOTS TLS provider
+            let localAddr = self.key.localAddress
             let serverNameIndicatorOverride: String?
-            if clientConfiguration.dnsResolver != nil, case .domain(let host, _) = key.connectionTarget {
+            if clientConfiguration.customDnsResolver != nil, case .domain(let host, _) = key.connectionTarget {
                 serverNameIndicatorOverride = host
             } else {
                 serverNameIndicatorOverride = key.serverNameIndicatorOverride
@@ -686,7 +718,7 @@ extension HTTPConnectionPool.ConnectionFactory {
 
                 let configureTlsOptions = self.clientConfiguration.configureTlsOptions
                 
-                return NIOTSConnectionBootstrap(group: eventLoop)  // validated above
+                var bootstrap = NIOTSConnectionBootstrap(group: eventLoop)  // validated above
                     .withNWParameters(clientConfiguration.nwParametersConfigurator)
                     .channelOption(
                         NIOTSChannelOptions.waitForActivity,
@@ -713,7 +745,16 @@ extension HTTPConnectionPool.ConnectionFactory {
                         } catch {
                             return channel.eventLoop.makeFailedFuture(error)
                         }
-                    } as NIOClientTCPBootstrapProtocol
+                    }
+                if let localAddress = localAddr {
+                    bootstrap = bootstrap.configureNWParameters { params in
+                        params.requiredLocalEndpoint = NWEndpoint.hostPort(
+                            host: NWEndpoint.Host(localAddress),
+                            port: .any
+                        )
+                    }
+                }
+                return bootstrap as NIOClientTCPBootstrapProtocol
             }
             return bootstrapFuture
         }
@@ -725,8 +766,14 @@ extension HTTPConnectionPool.ConnectionFactory {
             logger: logger
         )
         
-        let bootstrap = ClientBootstrap(group: eventLoop)
-            .connectTimeout(deadline - NIODeadline.now())
+        var bootstrap = ClientBootstrap(group: eventLoop)
+        switch clientConfiguration.dnsResolver.backing {
+        case .system:
+            break
+        case .randomized:
+            bootstrap = bootstrap.resolver(NIORandomizedDNSResolver(loop: eventLoop))
+        }
+        bootstrap = bootstrap.connectTimeout(deadline - NIODeadline.now())
             .enableMPTCP(clientConfiguration.enableMultipath)
             .channelInitializer { channel in
                 sslContextFuture.flatMap { sslContext -> EventLoopFuture<Void> in
@@ -747,7 +794,7 @@ extension HTTPConnectionPool.ConnectionFactory {
                 }
             }
         
-        if let resolverFuture = self.clientConfiguration.dnsResolver?() {
+        if let resolverFuture = self.clientConfiguration.customDnsResolver?() {
             return resolverFuture.hop(to: eventLoop).assumeIsolated().map { resolver in
                 return bootstrap.resolver(resolver)
             }.nonisolated()

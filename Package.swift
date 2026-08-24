@@ -35,12 +35,22 @@ let package = Package(
     products: [
         .library(name: "AsyncHTTPClient", targets: ["AsyncHTTPClient"])
     ],
+    traits: [
+        .default(enabledTraits: []),
+        .trait(
+            name: "UnstableHTTPAPIsSupport",
+            description: """
+                Enables source unstable SPIs to support the swift-http-api-proposal
+                AHC backend. Do not rely on this module in API stable packages.
+                """
+        ),
+    ],
     dependencies: [
-        .package(url: "https://github.com/chkp-aviads/swift-nio.git", from: "2.96.1"),
-        .package(url: "https://github.com/chkp-aviads/swift-nio-ssl.git", from: "2.36.4"),
-        .package(url: "https://github.com/chkp-aviads/swift-nio-http2.git", from: "1.40.2"),
-        .package(url: "https://github.com/chkp-aviads/swift-nio-extras.git", from: "1.33.1"),
-        .package(url: "https://github.com/chkp-aviads/swift-nio-transport-services.git", from: "1.26.3"),
+        .package(url: "https://github.com/chkp-aviads/swift-nio.git", from: "2.101.4"),
+        .package(url: "https://github.com/chkp-aviads/swift-nio-ssl.git", from: "2.38.0"),
+        .package(url: "https://github.com/chkp-aviads/swift-nio-http2.git", from: "1.45.2"),
+        .package(url: "https://github.com/chkp-aviads/swift-nio-extras.git", from: "1.34.5"),
+        .package(url: "https://github.com/chkp-aviads/swift-nio-transport-services.git", from: "1.28.2"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.7.1"),
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.0.2"),
         .package(url: "https://github.com/apple/swift-algorithms.git", from: "1.0.0"),
