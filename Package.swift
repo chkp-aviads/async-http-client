@@ -29,6 +29,19 @@ let strictConcurrencySettings: [SwiftSetting] = {
     return initialSettings
 }()
 
+#if compiler(>=6.4)
+// Disable all traits to prevent linking Foundation
+let swiftConfiguration: Package.Dependency = .package(
+    url: "https://github.com/apple/swift-configuration.git", from: "1.0.0", traits: []
+)
+#else
+// ponytail: older SwiftPM fails resolution on an emptied trait set — take the
+// defaults there. Costs the JSON trait (and a Foundation link), free on Apple platforms.
+let swiftConfiguration: Package.Dependency = .package(
+    url: "https://github.com/apple/swift-configuration.git", from: "1.0.0"
+)
+#endif
+
 let package = Package(
     name: "async-http-client",
     platforms: [.macOS(.v10_15), .iOS(.v13), .tvOS(.v13), .watchOS(.v6)],
@@ -55,10 +68,8 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.0.2"),
         .package(url: "https://github.com/apple/swift-algorithms.git", from: "1.0.0"),
         .package(url: "https://github.com/apple/swift-distributed-tracing.git", from: "1.3.0"),
-        // Disable all traits to prevent linking Foundation
-        .package(url: "https://github.com/apple/swift-configuration.git", from: "1.0.0", traits: []),
         .package(url: "https://github.com/apple/swift-service-context.git", from: "1.1.0"),
-    ],
+    ] + [swiftConfiguration],
     targets: [
         .target(
             name: "CAsyncHTTPClient",
