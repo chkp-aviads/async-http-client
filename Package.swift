@@ -31,7 +31,7 @@ let strictConcurrencySettings: [SwiftSetting] = {
 
 let package = Package(
     name: "async-http-client",
-    platforms: [.iOS(.v12), .macOS(.v10_14), .watchOS(.v6), .tvOS(.v12)],
+    platforms: [.macOS(.v10_15), .iOS(.v13), .tvOS(.v13), .watchOS(.v6)],
     products: [
         .library(name: "AsyncHTTPClient", targets: ["AsyncHTTPClient"])
     ],
@@ -49,7 +49,7 @@ let package = Package(
         .package(url: "https://github.com/chkp-aviads/swift-nio.git", from: "2.101.4"),
         .package(url: "https://github.com/chkp-aviads/swift-nio-ssl.git", from: "2.38.0"),
         .package(url: "https://github.com/chkp-aviads/swift-nio-http2.git", from: "1.45.2"),
-        .package(url: "https://github.com/chkp-aviads/swift-nio-extras.git", from: "1.35.0"),
+        .package(url: "https://github.com/chkp-aviads/swift-nio-extras.git", from: "1.35.1"),
         .package(url: "https://github.com/chkp-aviads/swift-nio-transport-services.git", from: "1.28.2"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.7.1"),
         .package(url: "https://github.com/apple/swift-atomics.git", from: "1.0.2"),

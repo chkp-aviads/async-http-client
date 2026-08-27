@@ -89,6 +89,13 @@ extension HTTPClient.Configuration {
         /// Note: Excluded from hash, because HTTPHeaders are not hashable.
         public var connectHeaders: HTTPHeaders = [:]
 
+        /// Whether this HTTP CONNECT proxy also relays UDP over the tunnelled TCP connection,
+        /// using GOST's `X-Gost-Protocol: udp` extension.
+        ///
+        /// Ignored for non-`.http` proxies, which carry UDP through their own mechanisms.
+        /// Surfaced to callers through ``supportsUDP`` — steer datagrams on that, not on this.
+        public var supportsUDPOverTCP: Bool = false
+
         /// Create an HTTP proxy configuration.
         ///
         /// - parameters:
@@ -164,11 +171,13 @@ extension HTTPClient.Configuration {
 
         /// Whether this proxy can carry UDP as well as TCP.
         ///
-        /// HTTP CONNECT can only tunnel TCP connections; SOCKSv5 has UDP ASSOCIATE and Shadowsocks
-        /// carries UDP natively. Callers that steer datagrams should consult this rather than
-        /// comparing against ``ProxyType/http`` so a new transport is handled correctly by default.
+        /// SOCKSv5 has UDP ASSOCIATE and Shadowsocks carries UDP natively. Plain HTTP CONNECT can
+        /// only tunnel TCP, unless the server implements GOST's UDP-over-TCP extension — in which
+        /// case ``supportsUDPOverTCP`` opts it in. Callers that steer datagrams should consult this
+        /// rather than comparing against ``ProxyType/http`` so a new transport is handled correctly
+        /// by default.
         public var supportsUDP: Bool {
-            if case .http = self.type { return false }
+            if case .http = self.type { return self.supportsUDPOverTCP }
             return true
         }
 
@@ -179,6 +188,7 @@ extension HTTPClient.Configuration {
                 && lhs.authorization == rhs.authorization
                 && lhs.internalTlsConfiguration == rhs.internalTlsConfiguration
                 && lhs.connectHeaders == rhs.connectHeaders
+                && lhs.supportsUDPOverTCP == rhs.supportsUDPOverTCP
         }
 
         // `connectHeaders` is omitted (HTTPHeaders is not hashable)
@@ -188,6 +198,7 @@ extension HTTPClient.Configuration {
             hasher.combine(self.type)
             hasher.combine(self.authorization)
             hasher.combine(self.internalTlsConfiguration)
+            hasher.combine(self.supportsUDPOverTCP)
         }
     }
 }
