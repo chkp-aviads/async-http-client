@@ -19,8 +19,10 @@ import FoundationEssentials
 #else
 import Foundation
 #endif
+import CoreFoundation
 import Dispatch
 import Network
+import NIOConcurrencyHelpers
 import NIOCore
 import NIOSSL
 import NIOTransportServices
@@ -62,6 +64,9 @@ extension TLSVersion {
     }
 }
 
+/// Reports the `Security` status of a certificate trust evaluation that rejected a connection.
+typealias TrustEvaluationFailureHandler = @Sendable (Int32) -> Void
+
 @available(macOS 10.14, iOS 12.0, tvOS 12.0, watchOS 5.0, *)
 extension TLSConfiguration {
     /// Dispatch queue used by Network framework TLS to control certificate verification
@@ -73,12 +78,16 @@ extension TLSConfiguration {
     /// - Returns: Future holding NWProtocolTLS Options
     func getNWProtocolTLSOptions(
         on eventLoop: EventLoop,
-        serverNameIndicatorOverride: String?
+        serverNameIndicatorOverride: String?,
+        onTrustEvaluationFailure: TrustEvaluationFailureHandler? = nil
     ) -> EventLoopFuture<NWProtocolTLS.Options> {
         let promise = eventLoop.makePromise(of: NWProtocolTLS.Options.self)
         Self.tlsDispatchQueue.async {
             do {
-                let options = try self.getNWProtocolTLSOptions(serverNameIndicatorOverride: serverNameIndicatorOverride)
+                let options = try self.getNWProtocolTLSOptions(
+                    serverNameIndicatorOverride: serverNameIndicatorOverride,
+                    onTrustEvaluationFailure: onTrustEvaluationFailure
+                )
                 promise.succeed(options)
             } catch {
                 promise.fail(error)
@@ -89,8 +98,15 @@ extension TLSConfiguration {
 
     /// create NWProtocolTLS.Options for use with NIOTransportServices from the NIOSSL TLSConfiguration
     ///
+    /// - Parameter onTrustEvaluationFailure: Called with the `Security` status of a certificate
+    ///   trust evaluation that rejects a connection, e.g. `errSecCertificateExpired`.
+    ///   `Network.framework` collapses every trust failure into `errSSLBadCert`, so this is the
+    ///   only place the specific reason is available. Called on ``tlsDispatchQueue``.
     /// - Returns: Equivalent NWProtocolTLS Options
-    func getNWProtocolTLSOptions(serverNameIndicatorOverride: String?) throws -> NWProtocolTLS.Options {
+    func getNWProtocolTLSOptions(
+        serverNameIndicatorOverride: String?,
+        onTrustEvaluationFailure: TrustEvaluationFailureHandler? = nil
+    ) throws -> NWProtocolTLS.Options {
         let options = NWProtocolTLS.Options()
 
         let useMTELGExplainer = """
@@ -204,8 +220,16 @@ extension TLSConfiguration {
                     if #available(macOS 10.15, iOS 13.0, tvOS 13.0, watchOS 6.0, *) {
                         dispatchPrecondition(condition: .onQueue(Self.tlsDispatchQueue))
                         SecTrustEvaluateAsyncWithError(trust, Self.tlsDispatchQueue) { _, result, error in
-                            if let error = error {
-                                print("Trust failed: \(error.localizedDescription)")
+                            // Only `kCFErrorDomainOSStatus` codes are `Security` statuses such as
+                            // `errSecCertificateExpired`. Anything else stays unreported.
+                            // Read through CoreFoundation rather than bridging to `NSError`: this
+                            // file compiles against `FoundationEssentials` too, which has no
+                            // `CFError` bridge.
+                            if let error = error,
+                                CFStringCompare(CFErrorGetDomain(error), kCFErrorDomainOSStatus, []) == .compareEqualTo,
+                                let status = Int32(exactly: CFErrorGetCode(error))
+                            {
+                                onTrustEvaluationFailure?(status)
                             }
                             sec_protocol_verify_complete(result)
                         }

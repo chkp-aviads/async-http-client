@@ -13,6 +13,7 @@
 //===----------------------------------------------------------------------===//
 
 import Logging
+import NIOConcurrencyHelpers
 @preconcurrency import NIOCore
 import NIOHTTP1
 import NIOHTTPCompression
@@ -634,12 +635,30 @@ extension HTTPConnectionPool.ConnectionFactory {
         promise: EventLoopPromise<NegotiatedProtocol>
     ) {
         precondition(self.key.scheme.usesTLS, "Unexpected scheme")
+        // Filled in by the certificate verification of this connection attempt, if it rejects it.
+        let trustEvaluationFailure = NIOLockedValueBox<Int32?>(nil)
         let bootstrapFuture = self.makeTLSBootstrap(
             requester: requester,
             connectionID: connectionID,
             deadline: deadline,
             eventLoop: eventLoop,
-            logger: logger
+            logger: logger,
+            onTrustEvaluationFailure: { status in
+                trustEvaluationFailure.withLockedValue { $0 = status }
+                // Tell the pool now. The connection deadline can elapse before this attempt gives
+                // up on its remaining addresses, and a rejected certificate is a better answer
+                // than the `connectTimeout` the pool would otherwise report.
+                #if canImport(Network)
+                requester.waitingForConnectivity(
+                    connectionID,
+                    error: HTTPClient.NWTLSError(
+                        errSSLBadCert,
+                        trustEvaluationStatus: status,
+                        reason: "certificate trust evaluation failed"
+                    )
+                )
+                #endif
+            }
         )
 
         bootstrapFuture.whenComplete { result in
@@ -670,7 +689,10 @@ extension HTTPConnectionPool.ConnectionFactory {
                     }.flatMapErrorThrowing { error in
                         // If NIOTransportSecurity is used, we want to map NWErrors into NWPOsixErrors or NWTLSError.
 #if canImport(Network)
-                        throw HTTPClient.NWErrorHandler.translateError(error)
+                        throw HTTPClient.NWErrorHandler.translateError(
+                            error,
+                            trustEvaluationStatus: trustEvaluationFailure.withLockedValue { $0 }
+                        )
 #else
                         throw error
 #endif
@@ -686,7 +708,8 @@ extension HTTPConnectionPool.ConnectionFactory {
         connectionID: HTTPConnectionPool.Connection.ID,
         deadline: NIODeadline,
         eventLoop: EventLoop,
-        logger: Logger
+        logger: Logger,
+        onTrustEvaluationFailure: @escaping @Sendable (Int32) -> Void
     ) -> EventLoopFuture<NIOClientTCPBootstrapProtocol> {
         if let localAddress = self.key.localAddress, !localAddress.isIPAddress {
             return eventLoop.makeFailedFuture(HTTPClientError.invalidLocalAddress)
@@ -716,7 +739,8 @@ extension HTTPConnectionPool.ConnectionFactory {
             }
             let bootstrapFuture = tlsConfig.getNWProtocolTLSOptions(
                 on: eventLoop,
-                serverNameIndicatorOverride: serverNameIndicatorOverride
+                serverNameIndicatorOverride: serverNameIndicatorOverride,
+                onTrustEvaluationFailure: onTrustEvaluationFailure
             ).map {
                 options -> NIOClientTCPBootstrapProtocol in
 

@@ -1272,17 +1272,21 @@ final class AsyncAwaitEndToEndTests: XCTestCase {
         url: String,
         dnsOverride: [String: String] = [:],
         eventLoopGroup: EventLoopGroup? = nil,
+        useCustomDNSResolver: Bool = false,
+        trustEvaluationStatus: OSStatus? = nil,
         file: StaticString = #filePath,
         line: UInt = #line
     ) async throws {
+        let group = eventLoopGroup ?? self.clientGroup!
         var config = HTTPClient.Configuration()
         config.dnsOverride = dnsOverride
         config.timeout.connect = .seconds(10)
+        if useCustomDNSResolver {
+            let eventLoop = group.next()
+            config.customDnsResolver = { eventLoop.makeSucceededFuture(NIORandomizedDNSResolver(loop: eventLoop)) }
+        }
 
-        let client = HTTPClient(
-            eventLoopGroupProvider: eventLoopGroup.map { .shared($0) } ?? .singleton,
-            configuration: config
-        )
+        let client = HTTPClient(eventLoopGroupProvider: .shared(group), configuration: config)
         defer { XCTAssertNoThrow(try client.syncShutdown()) }
 
         let start = NIODeadline.now()
@@ -1309,11 +1313,42 @@ final class AsyncAwaitEndToEndTests: XCTestCase {
                 file: file,
                 line: line
             )
+            #if canImport(Network)
+            if let expected = trustEvaluationStatus {
+                XCTAssertEqual(
+                    (error as? HTTPClient.NWTLSError)?.trustEvaluationStatus,
+                    expected,
+                    "wrong trust evaluation status for \(url)",
+                    file: file,
+                    line: line
+                )
+            }
+            #endif
         }
     }
 
     func testExpiredCertificateIsReportedQuickly() async throws {
-        try await self.assertTLSFailureIsReportedQuickly(url: "https://expired.badssl.com/")
+        try await self.assertTLSFailureIsReportedQuickly(
+            url: "https://expired.badssl.com/",
+            trustEvaluationStatus: errSecCertificateExpired
+        )
+    }
+
+    func testHostnameMismatchIsReportedQuickly() async throws {
+        try await self.assertTLSFailureIsReportedQuickly(
+            url: "https://wrong.host.badssl.com/",
+            trustEvaluationStatus: errSecHostNameMismatch
+        )
+    }
+
+    /// A custom DNS resolver makes `NIOTransportServices` connect through happy eyeballs, which
+    /// reports one error per address instead of the TLS error.
+    func testExpiredCertificateIsReportedQuicklyWithACustomDNSResolver() async throws {
+        try await self.assertTLSFailureIsReportedQuickly(
+            url: "https://expired.badssl.com/",
+            useCustomDNSResolver: true,
+            trustEvaluationStatus: errSecCertificateExpired
+        )
     }
 
     /// The same, but on a `MultiThreadedEventLoopGroup`, which uses `NIOSSL` instead of
@@ -1327,6 +1362,72 @@ final class AsyncAwaitEndToEndTests: XCTestCase {
         )
     }
 
+    /// Happy eyeballs attempts every address the resolver returns, and gives up on the whole
+    /// connection once its timeout elapses. A certificate rejected by one of those attempts must
+    /// still be what gets reported: whether the other address is unreachable or its DNS answer
+    /// never arrives, `connectTimeout` hides a certificate problem that is already known.
+    private func assertTLSFailureSurvivesAnUnhelpfulSecondAddress(
+        v6: [SocketAddress]?,
+        line: UInt = #line
+    ) async throws {
+        let group = getDefaultEventLoopGroup(numberOfThreads: 1)
+        defer { XCTAssertNoThrow(try group.syncShutdownGracefully()) }
+        let eventLoop = group.next()
+
+        var config = HTTPClient.Configuration()
+        config.timeout.connect = .seconds(5)
+        // Mirror the configuration a client that wants fast failures uses.
+        config.networkFrameworkWaitForConnectivity = false
+        config.connectionPool.retryConnectionEstablishment = false
+        config.customDnsResolver = {
+            eventLoop.makeSucceededFuture(
+                FixedResolver(
+                    // expired.badssl.com: rejected by the certificate trust evaluation.
+                    v4: [try! SocketAddress(ipAddress: "104.154.89.105", port: 443)],
+                    v6: v6
+                )
+            )
+        }
+
+        let client = HTTPClient(eventLoopGroupProvider: .shared(group), configuration: config)
+        defer { XCTAssertNoThrow(try client.syncShutdown()) }
+
+        do {
+            let response = try await client.execute(
+                HTTPClientRequest(url: "https://expired.badssl.com/"),
+                deadline: .now() + .seconds(30)
+            )
+            XCTFail("expected a TLS failure, got \(response.status)", line: line)
+        } catch {
+            print("second address case failed with \(String(reflecting: error))")
+            XCTAssertNotEqual(
+                error as? HTTPClientError,
+                .connectTimeout,
+                "the certificate failure of the other address was dropped",
+                line: line
+            )
+            #if canImport(Network)
+            XCTAssertEqual(
+                (error as? HTTPClient.NWTLSError)?.trustEvaluationStatus,
+                errSecCertificateExpired,
+                line: line
+            )
+            #endif
+        }
+    }
+
+    func testTLSFailureIsReportedWhenAnotherAddressIsUnreachable() async throws {
+        // RFC 3849 documentation prefix: nothing answers there.
+        try await self.assertTLSFailureSurvivesAnUnhelpfulSecondAddress(
+            v6: [try SocketAddress(ipAddress: "2001:db8::1", port: 443)]
+        )
+    }
+
+    func testTLSFailureIsReportedWhenTheOtherDNSQueryNeverAnswers() async throws {
+        // Happy eyeballs waits for the outstanding AAAA answer until its own timeout elapses.
+        try await self.assertTLSFailureSurvivesAnUnhelpfulSecondAddress(v6: nil)
+    }
+
     /// The OpenDNS/Cisco Umbrella block page: it is served under the requested hostname but
     /// signed by the Cisco Umbrella root, which is not in the system trust store. Reached by
     /// pinning the hostname to the block page address the OpenDNS resolvers hand out, so the
@@ -1334,9 +1435,40 @@ final class AsyncAwaitEndToEndTests: XCTestCase {
     func testUntrustedRootCertificateIsReportedQuickly() async throws {
         try await self.assertTLSFailureIsReportedQuickly(
             url: "https://www.internetbadguys.com/",
-            dnsOverride: ["www.internetbadguys.com": "146.112.61.108"]
+            dnsOverride: ["www.internetbadguys.com": "146.112.61.108"],
+            trustEvaluationStatus: errSecNotTrusted
         )
     }
+}
+
+/// Resolves every host to the same fixed addresses, so a test decides what happy eyeballs attempts.
+/// A `nil` address list stands for a query that never answers.
+private final class FixedResolver: Resolver, Sendable {
+    private let v4: [SocketAddress]?
+    private let v6: [SocketAddress]?
+
+    init(v4: [SocketAddress]?, v6: [SocketAddress]?) {
+        self.v4 = v4
+        self.v6 = v6
+    }
+
+    private func answer(_ addresses: [SocketAddress]?) -> EventLoopFuture<[SocketAddress]> {
+        let eventLoop = MultiThreadedEventLoopGroup.singleton.next()
+        guard let addresses = addresses else {
+            return eventLoop.makePromise(of: [SocketAddress].self).futureResult
+        }
+        return eventLoop.makeSucceededFuture(addresses)
+    }
+
+    func initiateAQuery(host: String, port: Int) -> EventLoopFuture<[SocketAddress]> {
+        self.answer(self.v4)
+    }
+
+    func initiateAAAAQuery(host: String, port: Int) -> EventLoopFuture<[SocketAddress]> {
+        self.answer(self.v6)
+    }
+
+    func cancelQueries() {}
 }
 
 struct AnySendableSequence<Element>: @unchecked Sendable {
