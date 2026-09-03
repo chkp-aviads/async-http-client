@@ -37,6 +37,17 @@ final class NWWaitingHandler<Requester: HTTPConnectionRequester>: ChannelInbound
                 self.connectionID,
                 error: HTTPClient.NWErrorHandler.translateError(waitingEvent.transientError)
             )
+            context.fireUserInboundEventTriggered(event)
+
+            // A failed TLS handshake is not a connectivity problem: waiting will never resolve it.
+            // `Network.framework` nevertheless parks the connection in `.waiting` for some
+            // certificate failures, which stalls connection setup until the connect timeout and
+            // surfaces as `HTTPClientError.connectTimeout`. Clearing `waitForActivity` makes the
+            // channel fail the connect right away with the underlying TLS error.
+            if case .tls = waitingEvent.transientError {
+                _ = context.channel.setOption(NIOTSChannelOptions.waitForActivity, value: false)
+            }
+            return
         }
         context.fireUserInboundEventTriggered(event)
     }

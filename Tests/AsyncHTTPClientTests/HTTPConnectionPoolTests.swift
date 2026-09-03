@@ -16,9 +16,14 @@ import Logging
 import NIOCore
 import NIOHTTP1
 import NIOPosix
+import NIOSSL
 import XCTest
 
 @testable import AsyncHTTPClient
+
+#if canImport(Network)
+import Network
+#endif
 
 class HTTPConnectionPoolTests: XCTestCase {
     func testOnlyOneConnectionIsUsedForSubSequentRequests() {
@@ -597,6 +602,31 @@ class HTTPConnectionPoolTests: XCTestCase {
                     .magnitude,
                 TimeAmount.milliseconds(1800).nanoseconds.magnitude
             )
+        }
+    }
+
+    func testConnectionFailuresThatARetryCannotFix() {
+        for error in [
+            HTTPClientError.invalidLocalAddress,
+            HTTPClientError.serverOfferedUnsupportedApplicationProtocol("spdy/1"),
+        ] as [Error] {
+            XCTAssertFalse(HTTPConnectionPool.isRetryableConnectionFailure(error), "\(error)")
+        }
+        XCTAssertFalse(HTTPConnectionPool.isRetryableConnectionFailure(NIOSSLError.unableToValidateCertificate))
+        #if canImport(Network)
+        XCTAssertFalse(HTTPConnectionPool.isRetryableConnectionFailure(HTTPClient.NWTLSError(-9808, reason: "")))
+        XCTAssertFalse(HTTPConnectionPool.isRetryableConnectionFailure(NWError.tls(-9808)))
+        #endif
+
+        for error in [
+            HTTPClientError.connectTimeout,
+            HTTPClientError.remoteConnectionClosed,
+            HTTPClientError.tlsHandshakeTimeout,
+            // The retry tests above rely on this one being retried.
+            HTTPClientError.proxyAuthenticationRequired,
+            ChannelError.connectTimeout(.seconds(1)),
+        ] as [Error] {
+            XCTAssertTrue(HTTPConnectionPool.isRetryableConnectionFailure(error), "\(error)")
         }
     }
 }

@@ -15,7 +15,12 @@
 import Logging
 import NIOConcurrencyHelpers
 import NIOCore
+import NIOPosix
 import NIOSSL
+
+#if canImport(Network)
+import Network
+#endif
 
 protocol HTTPConnectionPoolDelegate {
     func connectionPoolDidShutdown(_ pool: HTTPConnectionPool, unclean: Bool)
@@ -803,6 +808,38 @@ extension HTTPConnectionPool {
 
         func __testOnly_wrapped_request() -> HTTPSchedulableRequest {
             self.req
+        }
+    }
+
+    /// Whether a connection establishment failure is worth retrying.
+    ///
+    /// Connection establishment is retried with a backoff because most failures are transient.
+    /// A rejected TLS handshake is not: an expired or untrusted certificate stays expired or
+    /// untrusted, so retrying it only delays the error until the request deadline. The same holds
+    /// for an invalid configuration or an unusable protocol offer.
+    static func isRetryableConnectionFailure(_ error: Error) -> Bool {
+        #if canImport(Network)
+        // Errors collected per address by happy eyeballs are not translated into `NWTLSError`.
+        if let error = error as? NWError, case .tls = error {
+            return false
+        }
+        #endif
+
+        switch error {
+        case is NIOSSLError, is BoringSSLError:
+            return false
+        case let error as HTTPClientError:
+            return error.isRetryableConnectionFailure
+        #if canImport(Network)
+        case is HTTPClient.NWTLSError:
+            return false
+        #endif
+        // Happy eyeballs reports one error per address it tried. Only give up if none is retryable.
+        case let error as NIOConnectionError:
+            return error.connectionErrors.isEmpty
+                || error.connectionErrors.contains { Self.isRetryableConnectionFailure($0.error) }
+        default:
+            return true
         }
     }
 }

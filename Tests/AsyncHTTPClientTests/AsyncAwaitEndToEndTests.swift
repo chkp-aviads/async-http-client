@@ -1261,6 +1261,82 @@ final class AsyncAwaitEndToEndTests: XCTestCase {
         let requestInfo = try body.readJSONDecodable(RequestInfo.self, length: body.readableBytes)
         XCTAssertEqual(requestInfo?.data, localAddress)
     }
+
+    // MARK: - Certificate validation failures must be reported as such
+
+    /// Requires internet access. A server whose certificate does not validate must fail the
+    /// request with the TLS error, not stall until the connect timeout. Uses the default
+    /// configuration on purpose: neither the connectivity wait nor the connection establishment
+    /// retry may hide the certificate error.
+    private func assertTLSFailureIsReportedQuickly(
+        url: String,
+        dnsOverride: [String: String] = [:],
+        eventLoopGroup: EventLoopGroup? = nil,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async throws {
+        var config = HTTPClient.Configuration()
+        config.dnsOverride = dnsOverride
+        config.timeout.connect = .seconds(10)
+
+        let client = HTTPClient(
+            eventLoopGroupProvider: eventLoopGroup.map { .shared($0) } ?? .singleton,
+            configuration: config
+        )
+        defer { XCTAssertNoThrow(try client.syncShutdown()) }
+
+        let start = NIODeadline.now()
+        do {
+            let response = try await client.execute(
+                HTTPClientRequest(url: url),
+                deadline: .now() + .seconds(30)
+            )
+            XCTFail("expected a TLS failure for \(url), got \(response.status)", file: file, line: line)
+        } catch {
+            let elapsed = NIODeadline.now() - start
+            print("\(url) failed after \(elapsed) with \(String(reflecting: error))")
+            XCTAssertNotEqual(
+                error as? HTTPClientError,
+                .connectTimeout,
+                "certificate failure for \(url) was reported as a connect timeout",
+                file: file,
+                line: line
+            )
+            XCTAssertLessThan(
+                elapsed,
+                .seconds(5),
+                "certificate failure for \(url) took \(elapsed) to surface",
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    func testExpiredCertificateIsReportedQuickly() async throws {
+        try await self.assertTLSFailureIsReportedQuickly(url: "https://expired.badssl.com/")
+    }
+
+    /// The same, but on a `MultiThreadedEventLoopGroup`, which uses `NIOSSL` instead of
+    /// `Network.framework` for the handshake.
+    func testExpiredCertificateIsReportedQuicklyWithNIOSSL() async throws {
+        let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
+        defer { XCTAssertNoThrow(try group.syncShutdownGracefully()) }
+        try await self.assertTLSFailureIsReportedQuickly(
+            url: "https://expired.badssl.com/",
+            eventLoopGroup: group
+        )
+    }
+
+    /// The OpenDNS/Cisco Umbrella block page: it is served under the requested hostname but
+    /// signed by the Cisco Umbrella root, which is not in the system trust store. Reached by
+    /// pinning the hostname to the block page address the OpenDNS resolvers hand out, so the
+    /// test does not depend on which resolver the machine uses.
+    func testUntrustedRootCertificateIsReportedQuickly() async throws {
+        try await self.assertTLSFailureIsReportedQuickly(
+            url: "https://www.internetbadguys.com/",
+            dnsOverride: ["www.internetbadguys.com": "146.112.61.108"]
+        )
+    }
 }
 
 struct AnySendableSequence<Element>: @unchecked Sendable {

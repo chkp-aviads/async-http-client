@@ -1756,4 +1756,17 @@ public struct HTTPClientError: Error, Equatable, CustomStringConvertible {
             "AsyncHTTPClient now correctly supports informational headers. For this reason `httpEndReceivedAfterHeadWith1xx` will not be thrown anymore."
     )
     public static let httpEndReceivedAfterHeadWith1xx = HTTPClientError(code: .httpEndReceivedAfterHeadWith1xx)
+
+    /// Whether a connection establishment failed for a reason that another attempt could resolve.
+    ///
+    /// Used by `HTTPConnectionPool.isRetryableConnectionFailure(_:)`. Errors caused by the
+    /// configuration or by what the server negotiates are reproduced by every retry.
+    var isRetryableConnectionFailure: Bool {
+        switch self.code {
+        case .invalidLocalAddress, .serverOfferedUnsupportedApplicationProtocol:
+            return false
+        default:
+            return true
+        }
+    }
 }
