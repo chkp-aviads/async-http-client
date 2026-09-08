@@ -615,9 +615,17 @@ extension HTTPConnectionPool.ConnectionFactory {
                 }
             }
             if let resolverFuture = self.clientConfiguration.customDnsResolver?() {
-                return resolverFuture.hop(to: eventLoop).assumeIsolated().map { resolver in
-                    return bootstrap.resolver(resolver)
-                }.nonisolated()
+                // No `assumeIsolated()` here. `hop(to:)` decides where the future *completes*; it does
+                // not move this thread onto `eventLoop`. `assumeIsolated()` asserts about the *caller*,
+                // and this runs synchronously on whichever thread drove `makeChannel` (ultimately
+                // `HTTPConnectionPool.executeRequest`), so it precondition-fails there.
+                //
+                // The NIOTransportServices branches above return before reaching this code, which is why
+                // it stayed latent until an HTTPClient was handed a NIOPosix event loop.
+                let configuredBootstrap = bootstrap
+                return resolverFuture.hop(to: eventLoop).map { resolver -> NIOClientTCPBootstrapProtocol in
+                    configuredBootstrap.resolver(resolver)
+                }
             } else {
                 return eventLoop.makeSucceededFuture(bootstrap)
             }
@@ -823,9 +831,17 @@ extension HTTPConnectionPool.ConnectionFactory {
             }
         
         if let resolverFuture = self.clientConfiguration.customDnsResolver?() {
-            return resolverFuture.hop(to: eventLoop).assumeIsolated().map { resolver in
-                return bootstrap.resolver(resolver)
-            }.nonisolated()
+            // No `assumeIsolated()` here. `hop(to:)` decides where the future *completes*; it does
+            // not move this thread onto `eventLoop`. `assumeIsolated()` asserts about the *caller*,
+            // and this runs synchronously on whichever thread drove `makeChannel` (ultimately
+            // `HTTPConnectionPool.executeRequest`), so it precondition-fails there.
+            //
+            // The NIOTransportServices branches above return before reaching this code, which is why
+            // it stayed latent until an HTTPClient was handed a NIOPosix event loop.
+            let configuredBootstrap = bootstrap
+            return resolverFuture.hop(to: eventLoop).map { resolver -> NIOClientTCPBootstrapProtocol in
+                configuredBootstrap.resolver(resolver)
+            }
         } else {
             return eventLoop.makeSucceededFuture(bootstrap)
         }
