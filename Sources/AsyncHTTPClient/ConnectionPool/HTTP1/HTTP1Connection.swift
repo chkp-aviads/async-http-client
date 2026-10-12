@@ -60,10 +60,15 @@ final class HTTP1Connection {
         connectionID: HTTPConnectionPool.Connection.ID,
         delegate: HTTP1ConnectionDelegate,
         decompression: HTTPClient.Decompression,
+        responseDecoderLeniency: NIOHTTPDecoderLeniencyConfiguration = .init(),
         logger: Logger
     ) throws -> HTTP1Connection {
         let connection = HTTP1Connection(channel: channel, connectionID: connectionID, delegate: delegate)
-        try connection.start(decompression: decompression, logger: logger)
+        try connection.start(
+            decompression: decompression,
+            responseDecoderLeniency: responseDecoderLeniency,
+            logger: logger
+        )
         return connection
     }
 
@@ -116,7 +121,11 @@ final class HTTP1Connection {
         self.channel.pipeline.syncOperations.write(NIOAny(request), promise: nil)
     }
 
-    private func start(decompression: HTTPClient.Decompression, logger: Logger) throws {
+    private func start(
+        decompression: HTTPClient.Decompression,
+        responseDecoderLeniency: NIOHTTPDecoderLeniencyConfiguration,
+        logger: Logger
+    ) throws {
         self.channel.eventLoop.assertInEventLoop()
 
         guard case .initialized = self.state else {
@@ -137,7 +146,8 @@ final class HTTP1Connection {
             let requestEncoder = HTTPRequestEncoder()
             let responseDecoder = HTTPResponseDecoder(
                 leftOverBytesStrategy: .dropBytes,
-                informationalResponseStrategy: .forward
+                informationalResponseStrategy: .forward,
+                leniencyConfiguration: responseDecoderLeniency
             )
             try sync.addHandler(requestEncoder)
             try sync.addHandler(ByteToMessageHandler(responseDecoder))

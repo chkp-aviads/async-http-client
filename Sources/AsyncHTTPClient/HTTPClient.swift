@@ -892,6 +892,11 @@ public final class HTTPClient: Sendable {
         public var proxy: Proxy?
         /// Enables automatic body decompression. Supported algorithms are gzip and deflate.
         public var decompression: Decompression
+        /// Controls lenient parsing of malformed HTTP/1 responses.
+        ///
+        /// All leniency options are disabled by default. Enable them only when interoperating with
+        /// an origin that cannot be fixed.
+        public var http1ResponseDecoderLeniency: NIOHTTPDecoderLeniencyConfiguration = .init()
         /// Ignore TLS unclean shutdown error, defaults to `false`.
         @available(
             *,

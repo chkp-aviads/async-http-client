@@ -83,6 +83,7 @@ extension HTTPConnectionPool.ConnectionFactory {
                         connectionID: connectionID,
                         delegate: http1ConnectionDelegate,
                         decompression: self.clientConfiguration.decompression,
+                        responseDecoderLeniency: self.clientConfiguration.http1ResponseDecoderLeniency,
                         logger: logger
                     )
 
@@ -300,7 +301,12 @@ extension HTTPConnectionPool.ConnectionFactory {
             switch result {
             case .success(let channel):
                 let encoder = HTTPRequestEncoder()
-                let decoder = ByteToMessageHandler(HTTPResponseDecoder(leftOverBytesStrategy: .dropBytes))
+                let decoder = ByteToMessageHandler(
+                    HTTPResponseDecoder(
+                        leftOverBytesStrategy: .dropBytes,
+                        leniencyConfiguration: self.clientConfiguration.http1ResponseDecoderLeniency
+                    )
+                )
                 let proxyHandler = HTTP1ProxyConnectHandler(
                     target: self.key.connectionTarget,
                     proxyAuthorization: proxy.authorization,

@@ -644,6 +644,65 @@ class HTTP1ConnectionTests: XCTestCase {
         XCTAssertEqual(connectionDelegate.hitConnectionReleased, 0)
     }
 
+    func testResponseWithBareLFInFoldedHeaderCanBeDecoded() throws {
+        let embedded = EmbeddedChannel()
+        let logger = Logger(label: "test.http1.connection")
+
+        try embedded.connect(to: SocketAddress(ipAddress: "127.0.0.1", port: 0)).wait()
+
+        let connectionDelegate = MockConnectionDelegate()
+        let connection = try HTTP1Connection.start(
+            channel: embedded,
+            connectionID: 0,
+            delegate: connectionDelegate,
+            decompression: .enabled(limit: .ratio(4)),
+            responseDecoderLeniency: .init(
+                allowsBareLineFeed: true,
+                allowsInvalidHeaderValues: true
+            ),
+            logger: logger
+        )
+        let request = try HTTPClient.Request(url: "https://video-id.luxtrust.lu/")
+        let requestBag = try RequestBag(
+            request: request,
+            eventLoopPreference: .delegate(on: embedded.eventLoop),
+            task: .init(eventLoop: embedded.eventLoop, logger: logger),
+            redirectHandler: nil,
+            connectionDeadline: .now() + .seconds(30),
+            requestOptions: .forTests(),
+            delegate: ResponseAccumulator(request: request)
+        )
+
+        connection.sendableView.executeRequest(requestBag)
+
+        XCTAssertNotNil(try embedded.readOutbound(as: ByteBuffer.self))
+
+        let response = """
+            HTTP/1.1 200 OK\r\n\
+            Content-Type: text/html\r\n\
+            Content-Security-Policy: default-src 'self';frame-src 'self'\n\
+                     https://go.idnow.de https://id.ubble.ai;script-src 'self'\n\
+                     https://id.ubble.ai;object-src 'none';base-uri 'self';\r\n\
+            Transfer-Encoding: chunked\r\n\
+            \r\n\
+            0\r\n\
+            \r\n
+            """
+
+        XCTAssertNoThrow(try embedded.writeInbound(ByteBuffer(string: response)))
+        embedded.embeddedEventLoop.run()
+        let receivedResponse = try requestBag.task.futureResult.wait()
+        XCTAssertEqual(receivedResponse.status, .ok)
+        XCTAssertEqual(
+            receivedResponse.headers.first(name: "Content-Security-Policy"),
+            "default-src 'self';frame-src 'self' https://go.idnow.de https://id.ubble.ai;script-src 'self' "
+                + "https://id.ubble.ai;object-src 'none';base-uri 'self';"
+        )
+        XCTAssertTrue(embedded.isActive)
+        XCTAssertEqual(connectionDelegate.hitConnectionClosed, 0)
+        XCTAssertEqual(connectionDelegate.hitConnectionReleased, 1)
+    }
+
     // In order to test backpressure we need to make sure that reads will not happen
     // until the backpressure promise is succeeded. Since we cannot guarantee when
     // messages will be delivered to a client pipeline and we need this test to be
