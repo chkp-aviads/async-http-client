@@ -12,7 +12,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#if compiler(>=6.2)
 import Configuration
 import NIOCore
 import NIOHTTP1
@@ -270,4 +269,3 @@ extension HTTPClient.Authorization {
         }
     }
 }
-#endif

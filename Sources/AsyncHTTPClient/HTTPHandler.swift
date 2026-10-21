@@ -1099,7 +1099,8 @@ internal struct RedirectHandler<ResponseType: Sendable> {
                 url: redirectURL,
                 method: method,
                 headers: headers,
-                body: body
+                body: body,
+                tlsConfiguration: self.request.tlsConfiguration
             )
 
             let newTask = self.execute(newRequest, redirectState)
