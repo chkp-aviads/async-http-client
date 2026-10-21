@@ -111,6 +111,18 @@ extension HTTPConnectionPool {
 
         var state: HTTPVersionState
 
+        /// No connections in any state (starting, backing off, idle, leased, migrating) and no queued requests
+        var isIdle: Bool {
+            switch self.state {
+            case .http1(let http1):
+                return http1.lifecycleState == .running && http1.connections.isEmpty
+                    && http1.http2Connections == nil && http1.requests.isEmpty
+            case .http2(let http2):
+                return http2.lifecycleState == .running && http2.connections.isEmpty
+                    && http2.http1Connections == nil && http2.requests.isEmpty
+            }
+        }
+
         let idGenerator: Connection.ID.Generator
         let maximumConcurrentHTTP1Connections: Int
         /// The property was introduced to fail fast during testing.

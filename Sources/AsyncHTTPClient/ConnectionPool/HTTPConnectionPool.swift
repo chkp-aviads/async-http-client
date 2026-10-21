@@ -24,6 +24,14 @@ import Network
 
 protocol HTTPConnectionPoolDelegate {
     func connectionPoolDidShutdown(_ pool: HTTPConnectionPool, unclean: Bool)
+    /// A request reached a pool after it was retired for being idle. The delegate must execute it on a new pool.
+    func connectionPoolRetired(_ pool: HTTPConnectionPool, resubmit request: HTTPSchedulableRequest)
+}
+
+extension HTTPConnectionPoolDelegate {
+    func connectionPoolRetired(_ pool: HTTPConnectionPool, resubmit request: HTTPSchedulableRequest) {
+        request.fail(HTTPClientError.alreadyShutdown)
+    }
 }
 
 final class HTTPConnectionPool:
@@ -38,6 +46,8 @@ final class HTTPConnectionPool:
     private var _backoffTimer = [Connection.ID: Scheduled<Void>]()
     /// The request connection timeout timers. Protected by the stateLock
     private var _requestTimer = [Request.ID: Scheduled<Void>]()
+    /// Set once the pool was removed from its manager for being idle. Protected by the stateLock
+    private var _isRetired = false
 
     private static let fallbackConnectTimeout: TimeAmount = .seconds(30)
 
@@ -98,7 +108,32 @@ final class HTTPConnectionPool:
     }
 
     func executeRequest(_ request: HTTPSchedulableRequest) {
-        self.modifyStateAndRunActions { $0.executeRequest(.init(request)) }
+        var isRetired = false
+        self.modifyStateAndRunActions { state in
+            // Checked under the same lock as the state, so a request never enters a retired pool
+            if self._isRetired {
+                isRetired = true
+                return .none
+            }
+            return state.executeRequest(.init(request))
+        }
+        if isRetired {
+            self.delegate.connectionPoolRetired(self, resubmit: request)
+        }
+    }
+
+    /// Retires the pool if it has no connections (in any state), no queued requests and no pending timers.
+    /// A retired pool holds no resources and needs no shutdown. A request that still reaches it is handed back to
+    /// the delegate. Returns whether the pool was retired.
+    func retireIfIdle() -> Bool {
+        self.stateLock.withLock {
+            guard !self._isRetired, self._state.isIdle,
+                  self._idleTimer.isEmpty, self._backoffTimer.isEmpty, self._requestTimer.isEmpty else {
+                return false
+            }
+            self._isRetired = true
+            return true
+        }
     }
 
     func shutdown() {

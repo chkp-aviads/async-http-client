@@ -31,7 +31,12 @@ extension HTTPConnectionPool {
         private struct State: Sendable {
             var runState: RunState = .active
             var pools: [Key: HTTPConnectionPool] = [:]
+            var lastIdlePoolSweep = NIODeadline.now()
         }
+
+        /// Pools are created per host and were only removed on shutdown, so a long-lived client kept one for every
+        /// host it ever contacted. Idle pools are removed when a new pool is needed, at most this often.
+        private static let idlePoolSweepInterval: TimeAmount = .seconds(60)
 
         private let eventLoopGroup: EventLoopGroup
         private let configuration: HTTPClient.Configuration
@@ -55,6 +60,24 @@ extension HTTPConnectionPool {
             sslContextCache.clearCache()
         }
 
+        /// Removes the pools that have no connections and no queued requests right away.
+        /// Returns how many were removed.
+        @discardableResult
+        func removeIdlePools() -> Int {
+            self.state.withLockedValue { state in
+                guard case .active = state.runState else { return 0 }
+                return Self.removeIdlePools(&state)
+            }
+        }
+
+        private static func removeIdlePools(_ state: inout State) -> Int {
+            state.lastIdlePoolSweep = .now()
+            let count = state.pools.count
+            // Lock order is always manager, then pool
+            state.pools = state.pools.filter { !$0.value.retireIfIdle() }
+            return count - state.pools.count
+        }
+
         func executeRequest(_ request: HTTPSchedulableRequest) {
             let poolKey = request.poolKey
             let poolResult = self.state.withLockedValue { state -> Result<HTTPConnectionPool, HTTPClientError> in
@@ -62,6 +85,10 @@ extension HTTPConnectionPool {
                 case .active:
                     if let pool = state.pools[poolKey] {
                         return .success(pool)
+                    }
+
+                    if NIODeadline.now() - state.lastIdlePoolSweep >= Self.idlePoolSweepInterval {
+                        Self.removeIdlePools(&state)
                     }
 
                     let pool = HTTPConnectionPool(
@@ -135,6 +162,11 @@ extension HTTPConnectionPool {
 }
 
 extension HTTPConnectionPool.Manager: HTTPConnectionPoolDelegate {
+    func connectionPoolRetired(_ pool: HTTPConnectionPool, resubmit request: HTTPSchedulableRequest) {
+        // The retired pool is no longer in `pools`, so this creates a new one
+        self.executeRequest(request)
+    }
+
     func connectionPoolDidShutdown(_ pool: HTTPConnectionPool, unclean: Bool) {
         enum CloseAction {
             case close(EventLoopPromise<Bool>?, unclean: Bool)

@@ -217,6 +217,17 @@ public final class HTTPClient: Sendable {
         }
     }
 
+    /// Releases the per-host connection pools that currently have no connections and no queued requests.
+    ///
+    /// Idle pools are also released automatically, at most once a minute, when a pool for a new host is created.
+    /// Call this to release them right away, e.g. on memory pressure. A later request to such a host creates a new pool.
+    ///
+    /// - Returns: The number of pools released.
+    @discardableResult
+    public func releaseIdleConnectionPools() -> Int {
+        self.poolManager.removeIdlePools()
+    }
+
     /// Shuts down the client and `EventLoopGroup` if it was created by the client.
     ///
     /// This method blocks the thread indefinitely, prefer using ``shutdown()-96ayw``.
