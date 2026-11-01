@@ -621,6 +621,8 @@ final class TestHTTP2ConnectionDelegate: HTTP2ConnectionDelegate {
             $0.hitConnectionClosed += 1
         }
     }
+
+    func http2ConnectionHTTP11Required(_: HTTPConnectionPool.Connection.ID) {}
 }
 
 final class EmptyHTTP2ConnectionDelegate: HTTP2ConnectionDelegate {
@@ -637,6 +639,10 @@ final class EmptyHTTP2ConnectionDelegate: HTTP2ConnectionDelegate {
     }
 
     func http2ConnectionClosed(_: HTTPConnectionPool.Connection.ID) {
+        preconditionFailure("Unimplemented")
+    }
+
+    func http2ConnectionHTTP11Required(_: HTTPConnectionPool.Connection.ID) {
         preconditionFailure("Unimplemented")
     }
 }

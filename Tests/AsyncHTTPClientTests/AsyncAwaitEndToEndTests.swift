@@ -16,6 +16,7 @@ import Logging
 import NIOCore
 import NIOFoundationCompat
 import NIOHTTP1
+import NIOHTTP2
 import NIOPosix
 import NIOSSL
 import XCTest
@@ -80,6 +81,49 @@ final class AsyncAwaitEndToEndTests: XCTestCase {
             XCTAssertEqual(response.history.map(\.request.url), [request.url])
             XCTAssertEqual(response.status, .ok)
             XCTAssertEqual(response.version, .http2)
+        }
+    }
+
+    func testFallsBackToHTTP1WhenServerRequiresIt() {
+        XCTAsyncTest {
+            let bin = HTTPBin(.http2(compress: false)) { _ in HTTP11RequiredHandler() }
+            defer { XCTAssertNoThrow(try bin.shutdown()) }
+            let client = makeDefaultHTTPClient()
+            defer { XCTAssertNoThrow(try client.syncShutdown()) }
+            let logger = Logger(label: "HTTPClient", factory: StreamLogHandler.standardOutput(label:))
+            let request = HTTPClientRequest(url: "https://localhost:\(bin.port)/")
+
+            // The first request is reset on h2 and retried; the second goes straight to HTTP/1.1.
+            for _ in 0..<2 {
+                guard
+                    let response = await XCTAssertNoThrowWithResult(
+                        try await client.execute(request, deadline: .now() + .seconds(10), logger: logger)
+                    )
+                else { return }
+
+                XCTAssertEqual(response.status, .ok)
+                XCTAssertEqual(response.version, .http1_1)
+            }
+            XCTAssertEqual(bin.createdConnections, 2, "One h2 connection, then one reused http/1.1 connection")
+        }
+    }
+
+    func testDoesNotRetryNonReplayableBodyWhenServerRequiresHTTP1() {
+        XCTAsyncTest {
+            let bin = HTTPBin(.http2(compress: false)) { _ in HTTP11RequiredHandler() }
+            defer { XCTAssertNoThrow(try bin.shutdown()) }
+            let client = makeDefaultHTTPClient()
+            defer { XCTAssertNoThrow(try client.syncShutdown()) }
+            let logger = Logger(label: "HTTPClient", factory: StreamLogHandler.standardOutput(label:))
+            var request = HTTPClientRequest(url: "https://localhost:\(bin.port)/")
+            request.method = .POST
+            request.body = .stream("1234".utf8.async, length: .unknown)
+
+            await XCTAssertThrowsError(
+                try await client.execute(request, deadline: .now() + .seconds(10), logger: logger)
+            ) {
+                XCTAssertEqual(($0 as? NIOHTTP2Errors.StreamClosed)?.errorCode, .http11Required)
+            }
         }
     }
 
@@ -1536,5 +1580,26 @@ extension AnySendableCollection: Collection {
 
     subscript(position: AnyCollection<Element>.Index) -> Element {
         self.wrapped[position]
+    }
+}
+
+/// Behaves like an IIS site that refuses HTTP/2: every h2 stream is reset with `HTTP_1_1_REQUIRED`,
+/// HTTP/1.1 requests get an empty 200.
+private final class HTTP11RequiredHandler: ChannelInboundHandler {
+    typealias InboundIn = HTTPServerRequestPart
+    typealias OutboundOut = HTTPServerResponsePart
+
+    func channelRead(context: ChannelHandlerContext, data: NIOAny) {
+        guard case .end = self.unwrapInboundIn(data) else { return }
+
+        if let codec = try? context.pipeline.syncOperations.context(handlerType: HTTP2FramePayloadToHTTP1ServerCodec.self) {
+            // Writing from the codec's context skips the codec, which only speaks HTTP/1 parts.
+            codec.writeAndFlush(NIOAny(HTTP2Frame.FramePayload.rstStream(.http11Required)), promise: nil)
+            return
+        }
+
+        let head = HTTPResponseHead(version: .http1_1, status: .ok, headers: ["content-length": "0"])
+        context.write(self.wrapOutboundOut(.head(head)), promise: nil)
+        context.writeAndFlush(self.wrapOutboundOut(.end(nil)), promise: nil)
     }
 }

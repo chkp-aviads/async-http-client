@@ -34,6 +34,9 @@ extension HTTPConnectionPool {
         let clientConfiguration: HTTPClient.Configuration
         let tlsConfiguration: TLSConfiguration
         let sslContextCache: SSLContextCache
+        /// Set once the server resets a stream with `HTTP_1_1_REQUIRED`. From then on new
+        /// connections advertise only http/1.1, whatever `clientConfiguration.httpVersion` says.
+        let http1Required = NIOLockedValueBox(false)
 
         init(
             key: ConnectionPool.Key,
@@ -46,6 +49,10 @@ extension HTTPConnectionPool {
             self.sslContextCache = sslContextCache
             self.tlsConfiguration =
                 tlsConfiguration ?? clientConfiguration.tlsConfiguration ?? .makeClientConfiguration()
+        }
+
+        var httpVersion: HTTPClient.Configuration.HTTPVersion.Configuration {
+            self.http1Required.withLockedValue { $0 } ? .http1Only : self.clientConfiguration.httpVersion.configuration
         }
     }
 }
@@ -482,7 +489,7 @@ extension HTTPConnectionPool.ConnectionFactory {
             return channel.eventLoop.makeSucceededFuture(.http1_1(channel))
         case .https:
             var tlsConfig = self.tlsConfiguration
-            switch self.clientConfiguration.httpVersion.configuration {
+            switch self.httpVersion {
             case .automatic:
                 // since we can support h2, we need to advertise this in alpn
                 // "ProtocolNameList" contains the list of protocols advertised by the
@@ -730,7 +737,7 @@ extension HTTPConnectionPool.ConnectionFactory {
         }
 
         var tlsConfig = self.tlsConfiguration
-        switch self.clientConfiguration.httpVersion.configuration {
+        switch self.httpVersion {
         case .automatic:
             // since we can support h2, we need to advertise this in alpn
             // "ProtocolNameList" contains the list of protocols advertised by the

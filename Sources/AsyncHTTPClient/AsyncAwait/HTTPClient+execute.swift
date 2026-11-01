@@ -15,6 +15,7 @@
 import Logging
 import NIOCore
 import NIOHTTP1
+import NIOHTTP2
 import Tracing
 
 #if canImport(FoundationEssentials)
@@ -104,7 +105,17 @@ extension HTTPClient {
                     tracing: self.configuration.tracing
                 )
             let response = try await {
-                var response = try await self.executeCancellable(preparedRequest, deadline: deadline, logger: logger)
+                var response: HTTPClientResponse
+                do {
+                    response = try await self.executeCancellable(preparedRequest, deadline: deadline, logger: logger)
+                } catch let error as NIOHTTP2Errors.StreamClosed
+                    where error.errorCode == .http11Required && currentRequest.body.canBeConsumedMultipleTimes
+                {
+                    // The server refused to process the request over HTTP/2 (RFC 9113, section 8.7).
+                    // The pool now dials this origin over HTTP/1.1, so send it once more.
+                    logger.debug("server requires http/1.1, retrying request")
+                    response = try await self.executeCancellable(preparedRequest, deadline: deadline, logger: logger)
+                }
 
                 history.append(
                     .init(

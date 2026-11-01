@@ -22,6 +22,8 @@ protocol HTTP2IdleHandlerDelegate {
     func http2GoAwayReceived()
 
     func http2StreamClosed(availableStreams: Int)
+
+    func http2HTTP11Required()
 }
 
 // This is a `ChannelDuplexHandler` since we need to intercept outgoing user events. It is generic
@@ -83,7 +85,20 @@ final class HTTP2IdleHandler<Delegate: HTTP2IdleHandlerDelegate>: ChannelDuplexH
         // We intercept calls between the `NIOHTTP2ChannelHandler` and the `HTTP2StreamMultiplexer`
         // to learn, how many open streams we have.
         switch event {
-        case is StreamClosedEvent:
+        case let event as StreamClosedEvent:
+            if event.reason == .http11Required {
+                // The server wants HTTP/1.1 for this origin (RFC 9113, section 8.7). Treat it like a
+                // GOAWAY, so no new streams land on this connection. This runs before the
+                // multiplexer fails the stream's request, so a retry already finds the pool on
+                // HTTP/1.1.
+                self.delegate.http2HTTP11Required()
+                self.run(self.state.goAwayReceived(), context: context)
+                // Forward first: if this was the last stream, the connection closes below, and the
+                // request must fail with `HTTP_1_1_REQUIRED`, not `remoteConnectionClosed`.
+                context.fireUserInboundEventTriggered(event)
+                self.run(self.state.streamClosed(), context: context)
+                return
+            }
             let action = self.state.streamClosed()
             self.run(action, context: context)
 

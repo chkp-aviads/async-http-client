@@ -22,6 +22,7 @@ protocol HTTP2ConnectionDelegate: Sendable {
     func http2ConnectionStreamClosed(_: HTTPConnectionPool.Connection.ID, availableStreams: Int)
     func http2ConnectionGoAwayReceived(_: HTTPConnectionPool.Connection.ID)
     func http2ConnectionClosed(_: HTTPConnectionPool.Connection.ID)
+    func http2ConnectionHTTP11Required(_: HTTPConnectionPool.Connection.ID)
 }
 
 struct HTTP2PushNotSupportedError: Error {}
@@ -394,6 +395,12 @@ extension HTTP2Connection: HTTP2IdleHandlerDelegate {
         self.channel.eventLoop.assertInEventLoop()
 
         self.delegate.http2ConnectionStreamClosed(self.id, availableStreams: availableStreams)
+    }
+
+    func http2HTTP11Required() {
+        self.channel.eventLoop.assertInEventLoop()
+
+        self.delegate.http2ConnectionHTTP11Required(self.id)
     }
 }
 

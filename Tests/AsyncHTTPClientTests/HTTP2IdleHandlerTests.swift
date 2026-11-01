@@ -351,11 +351,64 @@ class HTTP2IdleHandlerTests: XCTestCase {
         embedded.embeddedEventLoop.run()
         XCTAssertNoThrow(try embedded.closeFuture.wait())
     }
+
+    func testStreamResetWithHTTP11RequiredDrainsConnection() {
+        let delegate = MockHTTP2IdleHandlerDelegate()
+        let idleHandler = HTTP2IdleHandler(delegate: delegate, logger: Logger(label: "test"))
+        let embedded = EmbeddedChannel(handlers: [idleHandler])
+        XCTAssertNoThrow(try embedded.connect(to: .makeAddressResolvingHost("localhost", port: 0)).wait())
+
+        let settingsFrame = HTTP2Frame(
+            streamID: 0,
+            payload: .settings(.settings([.init(parameter: .maxConcurrentStreams, value: 10)]))
+        )
+        XCTAssertNoThrow(try embedded.writeInbound(settingsFrame))
+
+        for streamID in [HTTP2StreamID(1), HTTP2StreamID(3)] {
+            let event = NIOHTTP2StreamCreatedEvent(
+                streamID: streamID,
+                localInitialWindowSize: nil,
+                remoteInitialWindowSize: nil
+            )
+            embedded.pipeline.fireUserInboundEventTriggered(event)
+        }
+
+        embedded.pipeline.fireUserInboundEventTriggered(StreamClosedEvent(streamID: 1, reason: .http11Required))
+        XCTAssertTrue(delegate.http11RequiredReceived)
+        XCTAssertTrue(delegate.goAwayReceived)
+        XCTAssertTrue(embedded.isActive, "The other stream must be allowed to finish.")
+
+        embedded.pipeline.fireUserInboundEventTriggered(StreamClosedEvent(streamID: 3, reason: nil))
+        embedded.embeddedEventLoop.run()
+        XCTAssertNoThrow(try embedded.closeFuture.wait())
+    }
+
+    func testStreamResetWithOtherErrorKeepsConnection() {
+        let delegate = MockHTTP2IdleHandlerDelegate()
+        let idleHandler = HTTP2IdleHandler(delegate: delegate, logger: Logger(label: "test"))
+        let embedded = EmbeddedChannel(handlers: [idleHandler])
+        XCTAssertNoThrow(try embedded.connect(to: .makeAddressResolvingHost("localhost", port: 0)).wait())
+
+        let settingsFrame = HTTP2Frame(
+            streamID: 0,
+            payload: .settings(.settings([.init(parameter: .maxConcurrentStreams, value: 10)]))
+        )
+        XCTAssertNoThrow(try embedded.writeInbound(settingsFrame))
+
+        let event = NIOHTTP2StreamCreatedEvent(streamID: 1, localInitialWindowSize: nil, remoteInitialWindowSize: nil)
+        embedded.pipeline.fireUserInboundEventTriggered(event)
+        embedded.pipeline.fireUserInboundEventTriggered(StreamClosedEvent(streamID: 1, reason: .cancel))
+
+        XCTAssertFalse(delegate.http11RequiredReceived)
+        XCTAssertFalse(delegate.goAwayReceived)
+        XCTAssertTrue(embedded.isActive)
+    }
 }
 
 class MockHTTP2IdleHandlerDelegate: HTTP2IdleHandlerDelegate {
     private(set) var maxStreams: Int?
     private(set) var goAwayReceived: Bool = false
+    private(set) var http11RequiredReceived: Bool = false
 
     private(set) var streamClosedHitCount: Int = 0
 
@@ -369,5 +422,9 @@ class MockHTTP2IdleHandlerDelegate: HTTP2IdleHandlerDelegate {
 
     func http2StreamClosed(availableStreams: Int) {
         self.streamClosedHitCount += 1
+    }
+
+    func http2HTTP11Required() {
+        self.http11RequiredReceived = true
     }
 }

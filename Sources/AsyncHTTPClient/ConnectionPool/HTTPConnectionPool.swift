@@ -682,6 +682,18 @@ extension HTTPConnectionPool: HTTP2ConnectionDelegate {
             $0.http2ConnectionStreamClosed(id)
         }
     }
+
+    func http2ConnectionHTTP11Required(_ id: HTTPConnectionPool.Connection.ID) {
+        self.logger.debug(
+            "server requires http/1.1, new connections will not offer h2",
+            metadata: [
+                "ahc-connection-id": "\(id)",
+                "ahc-http-version": "http/2",
+            ]
+        )
+        // The connection itself is drained through `http2ConnectionGoAwayReceived`, which follows.
+        self.connectionFactory.http1Required.withLockedValue { $0 = true }
+    }
 }
 
 extension HTTPConnectionPool: HTTPRequestScheduler {
